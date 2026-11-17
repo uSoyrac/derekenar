@@ -16,7 +16,7 @@ async function flash(tabId, text, color) {
 }
 
 // Seçimi kaydeder; sonucu yan panele ve sayfadaki içerik betiğine bildirir.
-export async function saveSelection({ text, note = '', tags = [], tab, pageUrl }) {
+export async function saveSelection({ text, note = '', tags = [], tab, pageUrl, fromPage = false }) {
   const body = (text || '').replace(/\s+\n/g, '\n').trim();
   if (!body && !note.trim()) throw new Error('Önce sayfada bir metin seç');
   if (!(await getConn())) {
@@ -30,7 +30,8 @@ export async function saveSelection({ text, note = '', tags = [], tab, pageUrl }
   if (source.url) await rememberUrl(source.url);
   if (tab?.id) {
     flash(tab.id, result.duplicate ? '=' : '✓', '#2f6b3a');
-    if (body) chrome.tabs.sendMessage(tab.id, { type: 'derkenar-highlight', texts: [body] }).catch(() => {});
+    // Çizim kipinde sayfa, seçimin kendisini boyar; diğer yollarda metni sayfada bulup vurgulamasını isteriz.
+    if (body && !fromPage) chrome.tabs.sendMessage(tab.id, { type: 'derkenar-highlight', texts: [body] }).catch(() => {});
   }
   chrome.runtime.sendMessage({ type: 'derkenar-saved', url: source.url }).catch(() => {});
   return result;
@@ -97,7 +98,13 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
       const tab = msg.tabId ? await chrome.tabs.get(msg.tabId) : sender.tab;
       const text = msg.text !== undefined ? msg.text : await selectionOf(tab.id);
       if (text === null) throw new Error("Bu sayfada seçim okunamıyor; metni seçip sağ tıkla ve “Derkenar'a kaydet”i seç");
-      respond({ ok: true, result: await saveSelection({ text, note: msg.note, tags: msg.tags, tab }) });
+      respond({ ok: true, result: await saveSelection({ text, note: msg.note, tags: msg.tags, tab, fromPage: Boolean(msg.fromPage) }) });
+    } else if (msg.type === 'derkenar-undo') {
+      respond(await rpc('token_delete_quote', { p_id: msg.id }));
+      chrome.runtime.sendMessage({ type: 'derkenar-saved' }).catch(() => {});
+    } else if (msg.type === 'derkenar-open-panel') {
+      await chrome.sidePanel.open({ tabId: sender.tab.id });
+      respond({ ok: true });
     } else if (msg.type === 'derkenar-refresh-urls') {
       respond({ urls: await knownUrls(true) });
     }

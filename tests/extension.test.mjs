@@ -19,7 +19,9 @@ const ARTICLE = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><tit
 <p id="p2">İkinci paragraf başka bir düşünceyi taşır ve ayrı bir alıntı olarak kaydedilir.</p>
 </body></html>`;
 
-const web = await startStatic(0, { '/makale.html': ARTICLE });
+const web = await startStatic();
+// Makale ayrı bir adresten sunulur: kenar düğmesi Derkenar'ın kendi sayfasında bilerek gizlenir.
+const site = await startStatic(0, { '/makale.html': ARTICLE });
 const shim = await startShim();
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'derkenar-ext-'));
 const context = await chromium.launchPersistentContext(profile, {
@@ -61,7 +63,7 @@ assert.match(await options.innerText('#status'), /Bağlı\. Kütüphanende 0 al�
 
 log('sağ tık menüsüyle kaydetme ve sayfada vurgulama');
 const article = await context.newPage();
-await article.goto(`${web.url}/makale.html?utm_source=bulten#giris`);
+await article.goto(`${site.url}/makale.html?utm_source=bulten#giris`);
 const tabId = await sw.evaluate(async () => (await chrome.tabs.query({ url: '*://*/makale.html*' }))[0].id);
 const first = 'Altını çizdiğimiz her cümle, daha sonra döneceğimiz bir işarettir.';
 await sw.evaluate(async ([tid, text]) => {
@@ -74,7 +76,7 @@ assert.equal(marked, first, 'vurgu, biçimli (em) metni aşarak tam cümleyi kap
 let rows = (await shim.db.query('select q.text, q.origin, s.url, s.title, s.kind from public.quotes q join public.sources s on s.id = q.source_id')).rows;
 assert.equal(rows.length, 1);
 assert.equal(rows[0].text, first);
-assert.equal(rows[0].url, `${web.url}/makale.html`, 'izleme parametreleri ve # kısmı atılır');
+assert.equal(rows[0].url, `${site.url}/makale.html`, 'izleme parametreleri ve # kısmı atılır');
 assert.equal(rows[0].title, 'Okuma Üzerine Bir Yazı');
 assert.equal(rows[0].kind, 'web');
 
@@ -89,6 +91,66 @@ await sw.evaluate(async (tid) => chrome.commands.onCommand.dispatch('save-select
 await article.waitForFunction(() => [...(CSS.highlights.get('derkenar') || [])].length === 2, null, { timeout: 15000 });
 rows = (await shim.db.query('select count(*)::int as n from public.quotes')).rows;
 assert.equal(rows[0].n, 2);
+
+log('kenar düğmesi: çizim kipi açıkken seçim kendiliğinden kaydedilir, geri alınabilir');
+{
+  const bubble = article.locator('#derkenar-host .bubble');
+  await bubble.waitFor();
+  assert.equal(await bubble.getAttribute('aria-pressed'), 'false');
+  assert.equal(await article.locator('#derkenar-host .count').innerText(), '2', 'düğmede bu sayfadaki alıntı sayısı');
+  const before = (await shim.db.query('select count(*)::int as n from public.quotes')).rows[0].n;
+  // Kip kapalıyken seçim kaydedilmez
+  await article.locator('h1').click({ clickCount: 3 });
+  await article.waitForTimeout(900);
+  assert.equal((await shim.db.query('select count(*)::int as n from public.quotes')).rows[0].n, before);
+  // Kipi aç, bir cümleyi fareyle seç
+  await bubble.click();
+  await article.waitForFunction(() => document.querySelector('#derkenar-host').shadowRoot.querySelector('.bubble').classList.contains('on'));
+  await article.locator('h1').click({ clickCount: 3 });
+  await article.locator('#derkenar-host .toast:has-text("Kaydedildi")').waitFor();
+  let saved = (await shim.db.query(`select text, origin from public.quotes where text = 'Okuma Üzerine'`)).rows;
+  assert.equal(saved.length, 1);
+  assert.equal(await article.evaluate(() => [...CSS.highlights.get('derkenar')].length), 3);
+  assert.equal(await article.evaluate(() => String(getSelection())), '', 'kaydedilen seçim bırakılır, sarı vurgu kalır');
+  assert.equal(await article.locator('#derkenar-host .count').innerText(), '3');
+  // Tek sözcük (çift tıklama) kaydedilmez
+  await article.locator('#p2').dblclick({ position: { x: 30, y: 10 } });
+  await article.waitForTimeout(900);
+  assert.equal((await shim.db.query('select count(*)::int as n from public.quotes')).rows[0].n, before + 1);
+  // Aynı bölümü yeniden seçmek ikinci bir kayıt oluşturmaz
+  await article.locator('h1').click({ clickCount: 3 });
+  await article.waitForTimeout(900);
+  assert.equal((await shim.db.query('select count(*)::int as n from public.quotes')).rows[0].n, before + 1);
+  await article.evaluate(() => getSelection().removeAllRanges());
+  await bubble.click(); // kipi kapat
+  await article.waitForFunction(() => !document.querySelector('#derkenar-host').shadowRoot.querySelector('.bubble').classList.contains('on'));
+  await bubble.click(); // yeniden aç
+  await article.locator('#p1 em').click({ clickCount: 2 }); // tek sözcük: yok sayılır
+  await article.evaluate(() => {
+    const node = document.getElementById('p1').firstChild;
+    const range = document.createRange();
+    range.setStart(node, 0); range.setEnd(node, 8);
+    getSelection().removeAllRanges(); getSelection().addRange(range);
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  });
+  await article.waitForTimeout(900); // "Okumak," tek sözcük: kaydedilmez
+  assert.equal((await shim.db.query('select count(*)::int as n from public.quotes')).rows[0].n, before + 1);
+  await article.evaluate(() => getSelection().removeAllRanges());
+  await shim.db.query(`delete from public.quotes where text = 'Okuma Üzerine'`);
+  await article.reload();
+  await article.locator('#derkenar-host .bubble.on').waitFor(); // kip, sayfa yenilense de açık kalır
+  await article.locator('h1').click({ clickCount: 3 });
+  await article.locator('#derkenar-host .toast:has-text("Kaydedildi")').waitFor();
+  await article.screenshot({ path: path.join(shots, 'eklenti-dugme.png') });
+  await article.locator('#derkenar-host .undo').click();
+  await article.waitForFunction(() => [...(CSS.highlights.get('derkenar') || [])].length === 2);
+  saved = (await shim.db.query(`select text from public.quotes where text = 'Okuma Üzerine'`)).rows;
+  assert.equal(saved.length, 0, 'geri al, kaydı siler');
+  await bubble.click(); // sonraki adımlar için kipi kapat
+  await article.waitForFunction(() => !document.querySelector('#derkenar-host').shadowRoot.querySelector('.bubble').classList.contains('on'));
+  // Derkenar uygulamasının kendi sayfasında düğme çıkmaz
+  assert.equal(await app.locator('#derkenar-host').count(), 0);
+}
 
 log('sayfa yeniden açılınca vurgular geri gelir');
 await article.reload();
@@ -153,6 +215,7 @@ await panel.waitForSelector('#setup:not([hidden])');
 
 await context.close();
 await web.close();
+await site.close();
 await shim.close();
 if (errors.length) { console.log('Sayfa hataları:', errors); process.exit(1); }
 console.log('\nEklenti testleri geçti.');

@@ -21,7 +21,7 @@ tek bir kütüphaneye düşer; oradan arar, etiketler, projelere ayırır ve Wor
 | Nerede okuyorsun | Ne yaparsın | Sayfa no |
 |---|---|---|
 | Mac/PC'de PDF (Preview, Acrobat vb.) | Her zamanki gibi altını çiz, kaydet. İzlenen klasördeyse kendiliğinden düşer; değilse PDF'i uygulamaya sürükle. | Var |
-| Chrome'da web sayfası | Seç → sağ tık → "Derkenar'a kaydet" (ya da Alt+Shift+S, ya da yan panel). | Yok |
+| Chrome'da web sayfası | Kenardaki Derkenar düğmesiyle çizim kipini aç; seçtiğin her yer kendiliğinden kaydedilir. Kip kapalıyken: seç → sağ tık → "Derkenar'a kaydet" (ya da Alt+Shift+S, ya da yan panel). | Yok |
 | Chrome'da açılan PDF | Seç → sağ tık → "Derkenar'a kaydet". | Yok |
 | Android | Seç → Paylaş → Derkenar. | Elle |
 | Mac'te başka uygulama | Seç → kısayol tuşu (bkz. `mac/KURULUM.md`). | Yok |

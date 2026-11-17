@@ -35,3 +35,6 @@ $('disconnect').onclick = async () => {
 };
 
 show();
+
+chrome.storage.local.get('bubble', ({ bubble }) => { $('bubble').checked = bubble !== false; });
+$('bubble').onchange = () => chrome.storage.local.set({ bubble: $('bubble').checked });
