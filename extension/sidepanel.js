@@ -25,6 +25,7 @@ function el(tag, props = {}, ...children) {
 
 function renderQuote(q) {
   const li = el('li', { className: 'quote' });
+  if (q.color) li.style.setProperty('--mark', q.color);
   if (q.text) li.append(el('blockquote', { textContent: q.text }));
   const note = el('div', { className: 'note', textContent: q.note, hidden: !q.note });
   const edit = el('button', { className: 'mini', textContent: q.note ? 'Notu düzenle' : 'Not ekle' });
@@ -36,6 +37,7 @@ function renderQuote(q) {
       try {
         await rpc('token_update_quote', { p_id: q.id, p_patch: { note: area.value.trim() } });
         await refresh();
+chrome.runtime.sendMessage({ type: 'derkenar-refresh-cats' }).catch(() => {});
       } catch (err) { setStatus(err.message, 'error'); }
     };
     note.replaceWith(area);
@@ -83,6 +85,7 @@ $('save').onclick = async () => {
   setStatus(res.result.duplicate ? 'Bu alıntı zaten kayıtlıydı' : 'Kaydedildi', 'ok');
   $('note').value = '';
   await refresh();
+chrome.runtime.sendMessage({ type: 'derkenar-refresh-cats' }).catch(() => {});
 };
 
 $('open-options').onclick = $('setup-link').onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
@@ -97,3 +100,4 @@ chrome.runtime.onMessage.addListener((msg) => {
 chrome.storage.onChanged.addListener((changes) => { if (changes.conn) refresh(); });
 
 refresh();
+chrome.runtime.sendMessage({ type: 'derkenar-refresh-cats' }).catch(() => {});

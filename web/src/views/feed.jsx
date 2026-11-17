@@ -1,10 +1,11 @@
 // Akış: alıntıların listesi, arama ve süzgeçler, seçip dışa aktarma.
 import { signal } from '@preact/signals';
 import { useMemo, useState } from 'preact/hooks';
-import { Dialog, Empty, Icon, MicButton, TagInput } from '../ui.jsx';
+import { ColorPicker, Dialog, Empty, Icon, MicButton, TagInput } from '../ui.jsx';
+import { colorKey, paletteOf } from '../lib/categories.js';
 import { QuoteForm } from './quote-form.jsx';
 import {
-  quotes, sourceById, projectById, projects, allTags, updateQuote, deleteQuote, toggleProject, notify,
+  quotes, sourceById, projectById, projects, allTags, updateQuote, deleteQuote, toggleProject, notify, categoryNames,
 } from '../state.js';
 import { citation, copyText, dayKey, dayLabel, download, fold, sourceLabel, timeLabel } from '../lib/util.js';
 import { toDocx, toMarkdown } from '../lib/export.js';
@@ -12,6 +13,7 @@ import { toDocx, toMarkdown } from '../lib/export.js';
 const query = signal('');
 const tagFilter = signal('');
 const period = signal('all');
+const colorFilter = signal('');
 const selecting = signal(false);
 const selected = signal(new Set());
 
@@ -25,6 +27,8 @@ function QuoteCard({ quote, showSource = true }) {
   const [editing, setEditing] = useState(false);
   const [tagging, setTagging] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [recolor, setRecolor] = useState(false);
+  const cat = paletteOf(colorKey(quote.color));
   const isSelected = selected.value.has(quote.id);
 
   const saveNote = async () => {
@@ -47,7 +51,7 @@ function QuoteCard({ quote, showSource = true }) {
   };
 
   return (
-    <article class={`quote${isSelected ? ' selected' : ''}`} style={quote.color ? `--mark:${quote.color}` : ''} data-quote-id={quote.id}>
+    <article class={`quote${isSelected ? ' selected' : ''}`} style={`--mark:${cat.hex}`} data-quote-id={quote.id} data-color={cat.key}>
       {selecting.value && (
         <label class="select-box"><input type="checkbox" checked={isSelected} onChange={toggleSelect} aria-label="Alıntıyı seç" /></label>
       )}
@@ -88,6 +92,16 @@ function QuoteCard({ quote, showSource = true }) {
             {ORIGINS[quote.origin] && <span class="badge">{ORIGINS[quote.origin]}</span>}
           </span>
           <span class="actions">
+            <span class="menu-wrap">
+              <button class="cat-btn" title="Rengi / kategoriyi değiştir" aria-label={`Kategori: ${categoryNames.value[cat.key]}. Değiştir`} aria-expanded={recolor} onClick={() => setRecolor(!recolor)}>
+                <span class="dot" style={`background:${cat.hex}`} />{categoryNames.value[cat.key]}
+              </button>
+              {recolor && (
+                <div class="menu" onMouseLeave={() => setRecolor(false)}>
+                  <ColorPicker value={cat.key} onChange={async (key) => { setRecolor(false); if (key !== cat.key) await updateQuote(quote.id, { color: paletteOf(key).hex }); }} />
+                </div>
+              )}
+            </span>
             {!quote.note && !editingNote && <button class="icon-btn" title="Not ekle" aria-label="Not ekle" onClick={() => setEditingNote(true)}><Icon name="note" size={16} /></button>}
             <button class="icon-btn" title="Etiketle" aria-label="Etiketle" onClick={() => setTagging(!tagging)}><Icon name="tag" size={16} /></button>
             <span class="menu-wrap">
@@ -147,6 +161,7 @@ export function QuoteList({ base, title = 'Alıntılarım', groupBy = 'day', sho
   const q = fold(query.value.trim());
   const tag = tagFilter.value;
   const days = period.value;
+  const color = colorFilter.value;
 
   const filtered = useMemo(() => {
     const since = days === 'all' ? 0 : Date.now() - Number(days) * 86400000;
@@ -154,6 +169,7 @@ export function QuoteList({ base, title = 'Alıntılarım', groupBy = 'day', sho
     return all.filter((item) => {
       if (since && new Date(item.created_at).getTime() < since) return false;
       if (tag && !(item.tags || []).includes(tag)) return false;
+      if (color && colorKey(item.color) !== color) return false;
       if (terms.length) {
         const src = sourceById.value.get(item.source_id);
         const hay = fold(`${item.text} ${item.note} ${(item.tags || []).join(' ')} ${src ? `${src.title} ${src.author} ${src.file_name}` : ''}`);
@@ -161,7 +177,7 @@ export function QuoteList({ base, title = 'Alıntılarım', groupBy = 'day', sho
       }
       return true;
     });
-  }, [all, q, tag, days, sourceById.value]);
+  }, [all, q, tag, days, color, sourceById.value]);
 
   const groups = useMemo(() => {
     if (groupBy === 'page') {
@@ -189,7 +205,7 @@ export function QuoteList({ base, title = 'Alıntılarım', groupBy = 'day', sho
 
   const chosen = filtered.filter((item) => selected.value.has(item.id));
   const exportList = selecting.value && chosen.length ? chosen : filtered;
-  const filtering = q || tag || days !== 'all';
+  const filtering = q || tag || color || days !== 'all';
 
   return (
     <section class="feed">
@@ -212,9 +228,10 @@ export function QuoteList({ base, title = 'Alıntılarım', groupBy = 'day', sho
           <Icon name="download" /> Dışa aktar{selecting.value && chosen.length ? ` (${chosen.length})` : ''}
         </button>
       </div>
+      <ColorPicker value={colorFilter.value} onChange={(key) => { colorFilter.value = colorFilter.value === key ? '' : key; }} allowNone />
       <p class="count" aria-live="polite">
         {filtering ? `${filtered.length} / ${all.length} alıntı` : `${all.length} alıntı`}
-        {filtering && <button class="link-btn" onClick={() => { query.value = ''; tagFilter.value = ''; period.value = 'all'; }}>Süzgeçleri temizle</button>}
+        {filtering && <button class="link-btn" onClick={() => { query.value = ''; tagFilter.value = ''; period.value = 'all'; colorFilter.value = ''; }}>Süzgeçleri temizle</button>}
       </p>
 
       {filtered.length === 0 && (

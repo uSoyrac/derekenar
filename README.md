@@ -28,12 +28,18 @@ tek bir kütüphaneye düşer; oradan arar, etiketler, projelere ayırır ve Wor
 | Mac'te başka uygulama | Seç → kısayol tuşu (bkz. `mac/KURULUM.md`). | Yok |
 | Basılı kitap | Uygulamada "Ekle" → yaz ya da mikrofonla söyle. | Elle |
 
+## Renk kategorileri
+
+Beş çizim rengi (sarı, yeşil, mavi, pembe, mor) beş kategoridir; adlarını Ayarlar → Renk
+kategorileri'nden verirsin. Preview'da o renkle çizdiğin, eklentide o rengi seçtiğin ya da elle
+o rengi işaretlediğin her alıntı o kategoriye düşer. Akışta renge göre süzüp dışa aktarabilirsin.
+
 ## Kurulum
 
 ### 1. Veritabanı (Supabase)
 
 1. [supabase.com](https://supabase.com) panelinde yeni bir proje oluştur (bölge: Frankfurt önerilir).
-2. **SQL Editor**'ı aç, `supabase/migrations/0001_init.sql` dosyasının tamamını yapıştır ve çalıştır.
+2. **SQL Editor**'ı aç; `supabase/migrations/` altındaki dosyaları sırayla (`0001_init.sql`, `0002_categories.sql`) yapıştırıp çalıştır.
 3. **Project Settings → API** sayfasından iki değeri not al: proje adresi (`https://xxxx.supabase.co`)
    ve yayınlanabilir anahtar (publishable / anon key). Bu anahtar gizli değildir; veriyi satır
    düzeyindeki erişim kuralları korur.

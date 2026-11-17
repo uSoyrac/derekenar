@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../ui.jsx';
 import {
   mode, user, cloudConfig, localLeftover, quotes, getDriver, signOut, showAuth, saveCloudConfig,
-  migrateLocalToCloud, exportBackup, importBackup, notify,
+  migrateLocalToCloud, exportBackup, importBackup, notify, categoryNames, settingsRow, saveCategoryNames,
 } from '../state.js';
+import { PALETTE } from '../lib/categories.js';
 import { watch, watchSupported, chooseFolder, regrant, scanNow, stopWatch } from '../lib/watch.js';
 import { speechLang, setSpeechLang, speechSupported } from '../lib/speech.js';
 import { copyText, dateLabel, download, timeLabel } from '../lib/util.js';
@@ -149,6 +150,32 @@ function Tokens() {
   );
 }
 
+function Categories() {
+  const [names, setNames] = useState(() => ({ ...(settingsRow.value?.categories || {}) }));
+  const [saving, setSaving] = useState(false);
+  const save = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try { await saveCategoryNames(names); notify('Kategori adları kaydedildi'); } catch (err) { notify(`Kaydedilemedi: ${err.message}`, 'error'); }
+    setSaving(false);
+  };
+  return (
+    <section class="card">
+      <h3>Renk kategorileri</h3>
+      <p>Her çizim rengi bir kategoridir. Renklere kendi adını ver (örneğin yeşil için “Yöntem”, pembe için “Eleştiri”). Preview'da o renkle çizdiğin ya da eklentide o rengi seçtiğin her alıntı bu kategoriye düşer.</p>
+      <form class="cat-form" onSubmit={save}>
+        {PALETTE.map((p) => (
+          <label key={p.key}><span class="dot" style={`background:${p.hex}`} /><span class="sr">{p.name}</span>
+            <input value={names[p.key] || ''} placeholder={p.name} aria-label={`${p.name} rengin kategori adı`}
+              onInput={(e) => setNames({ ...names, [p.key]: e.currentTarget.value })} />
+          </label>
+        ))}
+        <button class="btn primary" type="submit" disabled={saving}>Adları kaydet</button>
+      </form>
+    </section>
+  );
+}
+
 function Misc() {
   const [lang, setLang] = useState(speechLang());
   const file = useRef(null);
@@ -190,6 +217,7 @@ export function SettingsView() {
   return (
     <div class="settings">
       <Account />
+      <Categories />
       <Watch />
       <Tokens />
       <Misc />

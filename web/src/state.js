@@ -5,6 +5,7 @@ import { createLocalDriver } from './drivers/local.js';
 import { createCloudDriver } from './drivers/cloud.js';
 import { idbAll } from './lib/idb.js';
 import { uuid, nowIso, deviceName } from './lib/util.js';
+import { PALETTE } from './lib/categories.js';
 
 export const phase = signal('boot'); // boot | auth | ready
 export const mode = signal('local'); // local | cloud
@@ -13,6 +14,7 @@ export const user = signal(null);
 export const sources = signal([]);
 export const quotes = signal([]);
 export const projects = signal([]);
+export const settingsRow = signal(null);
 export const busy = signal(false);
 export const toast = signal(null);
 export const localLeftover = signal(0); // buluta geçince bu cihazda kalan alıntı sayısı
@@ -27,6 +29,11 @@ export const quotesBySource = computed(() => {
     map.get(key).push(q);
   }
   return map;
+});
+// Kategori adları: kullanıcının verdiği ad, yoksa rengin adı.
+export const categoryNames = computed(() => {
+  const custom = settingsRow.value?.categories || {};
+  return Object.fromEntries(PALETTE.map((p) => [p.key, (custom[p.key] || '').trim() || p.name]));
 });
 export const allTags = computed(() => {
   const counts = new Map();
@@ -105,7 +112,7 @@ export async function signIn(email, password, isNew) {
 
 export async function signOut() {
   if (driver?.kind === 'cloud') await driver.signOut();
-  sources.value = []; quotes.value = []; projects.value = [];
+  sources.value = []; quotes.value = []; projects.value = []; settingsRow.value = null;
   user.value = null;
   localStorage.removeItem('derkenar.mode');
   driver = createCloudDriver(cloudConfig.value);
@@ -128,8 +135,8 @@ let refreshing = null;
 export function refresh() {
   refreshing ||= (async () => {
     try {
-      const [s, q, p] = await Promise.all([driver.all('sources'), driver.all('quotes'), driver.all('projects')]);
-      sources.value = s; quotes.value = q; projects.value = p;
+      const [s, q, p, st] = await Promise.all([driver.all('sources'), driver.all('quotes'), driver.all('projects'), driver.all('settings')]);
+      sources.value = s; quotes.value = q; projects.value = p; settingsRow.value = st[0] || null;
     } finally { refreshing = null; }
   })();
   return refreshing;
@@ -259,6 +266,18 @@ export async function toggleProject(quote, projectId) {
   const has = (quote.project_ids || []).includes(projectId);
   const project_ids = has ? quote.project_ids.filter((p) => p !== projectId) : [...(quote.project_ids || []), projectId];
   await updateQuote(quote.id, { project_ids });
+}
+
+export async function saveCategoryNames(names) {
+  const categories = Object.fromEntries(PALETTE.map((p) => [p.key, (names[p.key] || '').trim()]).filter(([, v]) => v));
+  const current = settingsRow.value;
+  if (current) {
+    settingsRow.value = (await driver.update('settings', current.id, { categories, updated_at: nowIso() })) || current;
+  } else {
+    const row = { id: uuid(), categories, created_at: nowIso(), updated_at: nowIso() };
+    const inserted = await driver.insert('settings', [row]);
+    settingsRow.value = inserted[0] || row;
+  }
 }
 
 // Yedek: tüm veriyi tek JSON olarak ver / geri yükle.

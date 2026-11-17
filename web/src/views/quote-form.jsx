@@ -1,6 +1,7 @@
 // Alıntı / not formu: elle ekleme, düzenleme ve paylaşım ekranı aynı formu kullanır.
 import { useState } from 'preact/hooks';
-import { MicButton, SourcePicker, TagInput } from '../ui.jsx';
+import { ColorPicker, MicButton, SourcePicker, TagInput } from '../ui.jsx';
+import { colorKey, paletteOf } from '../lib/categories.js';
 import { addQuotes, ensureSource, updateQuote, notify, sources } from '../state.js';
 import { hash } from '../lib/util.js';
 
@@ -25,6 +26,7 @@ export function QuoteForm({ initial, quote, origin = 'manual', onDone, onCancel,
   const [note, setNote] = useState(quote?.note ?? initial?.note ?? '');
   const [page, setPage] = useState(quote?.page ?? '');
   const [tags, setTags] = useState(quote?.tags ?? []);
+  const [color, setColor] = useState(() => colorKey(quote?.color || ''));
   const [source, setSource] = useState(() => (quote ? (quote.source_id ? { mode: 'existing', id: quote.source_id } : { mode: 'none' }) : defaultSource(initial)));
   const [saving, setSaving] = useState(false);
 
@@ -45,11 +47,14 @@ export function QuoteForm({ initial, quote, origin = 'manual', onDone, onCancel,
         source_id = saved.id;
       }
       if (quote) {
-        await updateQuote(quote.id, { text: text.trim(), note: note.trim(), page: page.trim(), tags, source_id });
+        const patch = { text: text.trim(), note: note.trim(), page: page.trim(), tags, source_id };
+        // Renk yalnızca kategori değiştiyse yazılır; PDF'ten gelen özgün ton korunur.
+        if (color !== colorKey(quote.color || '')) patch.color = paletteOf(color).hex;
+        await updateQuote(quote.id, patch);
       } else {
         const body = text.trim();
         await addQuotes([{
-          source_id, text: body, note: note.trim(), page: page.trim(), tags, origin,
+          source_id, text: body, note: note.trim(), page: page.trim(), tags, origin, color: paletteOf(color).hex,
           fingerprint: body ? `man:${hash(`${source_id || ''}|${body}`)}` : null,
         }]);
       }
@@ -72,6 +77,7 @@ export function QuoteForm({ initial, quote, origin = 'manual', onDone, onCancel,
         <textarea rows={3} value={note} placeholder="Kendi yorumun" onInput={(e) => setNote(e.currentTarget.value)} />
       </label>
       <div class="field-tools"><MicButton onAppend={(t) => setNote((v) => (v ? `${v} ${t}` : t))} label="Notu sesle yaz" /></div>
+      <div class="label-like">Renk / kategori<ColorPicker value={color} onChange={setColor} /></div>
       <SourcePicker value={source} onChange={setSource} />
       <div class="grid-2">
         <label>Sayfa<input value={page} onInput={(e) => setPage(e.currentTarget.value)} placeholder="örn. 42" /></label>

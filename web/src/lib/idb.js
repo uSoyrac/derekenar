@@ -2,9 +2,9 @@
 //  - derkenar-data:   hesapsız kullanımda alıntıların kendisi
 //  - derkenar-device: bu cihaza özgü ayarlar (izlenen klasör, tarama durumu)
 
-function open(name, stores) {
+function open(name, stores, version = 1) {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(name, 1);
+    const req = indexedDB.open(name, version);
     req.onupgradeneeded = () => {
       for (const s of stores) {
         if (!req.result.objectStoreNames.contains(s.name)) req.result.createObjectStore(s.name, s.options);
@@ -29,10 +29,10 @@ const done = (tx) => new Promise((resolve, reject) => {
 let dataDb;
 let deviceDb;
 
-export const TABLES = ['sources', 'quotes', 'projects'];
+export const TABLES = ['sources', 'quotes', 'projects', 'settings'];
 
 export function dataStore() {
-  dataDb ||= open('derkenar-data', TABLES.map((name) => ({ name, options: { keyPath: 'id' } })));
+  dataDb ||= open('derkenar-data', TABLES.map((name) => ({ name, options: { keyPath: 'id' } })), 2);
   return dataDb;
 }
 

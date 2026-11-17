@@ -140,6 +140,28 @@ console.log('Hesapsız kip');
   await page.waitForFunction(() => document.querySelectorAll('.quote').length === 1);
   await page.selectOption('select[aria-label="Etiket"]', '');
 
+  log('renk kategorileri: PDF çizim rengi kategoriye eşlenir; süzme, adlandırma, renk değiştirme');
+  await page.click('.feed > .colors .color-chip[title="Yeşil"]');
+  await page.waitForFunction(() => document.querySelectorAll('.quote').length === 2);
+  assert.deepEqual([...new Set((await quotesOf(page)).map((q) => q.text))], ['geri bildirimleri'], 'yeşille çizilenler yeşil kategoride');
+  await page.click('.feed > .colors .color-chip:has-text("Tümü")');
+  await page.waitForFunction(() => document.querySelectorAll('.quote').length === 10);
+  await page.goto(`${web.url}/#/ayarlar`);
+  await page.fill('input[aria-label="Yeşil rengin kategori adı"]', 'Yöntem');
+  await page.click('text=Adları kaydet');
+  await page.waitForSelector('.toast:has-text("Kategori adları kaydedildi")');
+  await page.goto(`${web.url}/#/`);
+  await page.waitForSelector('.feed > .colors .color-chip[title="Yöntem"]');
+  assert.match(await page.locator('.quote[data-color="green"] .cat-btn').first().innerText(), /Yöntem/);
+  const recolor = page.locator('.quote', { hasText: 'Anlam, okurun metinle' });
+  assert.equal(await recolor.getAttribute('data-color'), 'yellow');
+  await recolor.locator('.cat-btn').click();
+  await recolor.locator('.menu .color-chip[title="Mavi"]').click();
+  await page.waitForSelector('.quote[data-color="blue"]');
+  await page.reload();
+  await page.waitForSelector('.quote[data-color="blue"]');
+  await page.waitForSelector('.feed > .colors .color-chip[title="Yöntem"]');
+
   log('proje oluşturma ve alıntı ekleme');
   await page.goto(`${web.url}/#/projeler`);
   await page.fill('input[aria-label="Yeni proje adı"]', 'Öz-yeterlik makalesi');
@@ -196,8 +218,10 @@ console.log('Hesapsız kip');
   await page.fill('dialog label:has-text("Yazar") input', 'Kaya, B.');
   await page.fill('dialog label:has-text("Yıl") input', '2021');
   await page.fill('dialog label:has-text("Sayfa") input', '5');
+  await page.click('dialog .colors .color-chip[title="Pembe"]');
   await page.click('dialog button[type=submit]');
   await page.waitForSelector('dialog', { state: 'detached' });
+  assert.equal(await page.locator('.quote', { hasText: 'Elle yazılmış bir alıntı.' }).getAttribute('data-color'), 'pink');
   const manual = (await quotesOf(page)).find((q) => q.text === 'Elle yazılmış bir alıntı.');
   assert.match(manual.where, /Kaya, B\. \(2021\) · Deneme Kitabı · s\. 5/);
   // Aynı kaynaktan ikinci not: kaynak önceden seçili gelir
@@ -423,6 +447,18 @@ console.log('Bulut kipi (iki cihaz, hesap yalıtımı, sayfalama, taşıma, bağ
   await B.page.reload();
   await B.page.waitForSelector('.quote');
   assert.equal((await quotesOf(B.page)).length, 4);
+
+  log('kategori adları cihazlar arasında eşitlenir');
+  await A.page.goto(`${web.url}/#/ayarlar`);
+  await A.page.fill('input[aria-label="Pembe rengin kategori adı"]', 'Eleştiri');
+  await A.page.click('text=Adları kaydet');
+  await A.page.waitForSelector('.toast:has-text("Kategori adları kaydedildi")');
+  await A.page.fill('input[aria-label="Pembe rengin kategori adı"]', 'Karşı görüş'); // ikinci kayıt: güncelleme yolu
+  await A.page.click('text=Adları kaydet');
+  await A.page.waitForSelector('.toast:has-text("Kategori adları kaydedildi")');
+  await B.page.reload();
+  await B.page.waitForSelector('.feed > .colors .color-chip[title="Karşı görüş"]');
+  await A.page.goto(`${web.url}/#/`);
 
   log('başka hesap bu verileri göremez');
   const C = await newDevice({ cloud: true });

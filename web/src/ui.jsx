@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { speechSupported, startDictation } from './lib/speech.js';
-import { notify, sources, allTags } from './state.js';
+import { notify, sources, allTags, categoryNames } from './state.js';
+import { PALETTE } from './lib/categories.js';
 import { sourceLabel } from './lib/util.js';
 
 const PATHS = {
@@ -135,4 +136,22 @@ export function SourcePicker({ value, onChange }) {
 
 export function Empty({ title, children }) {
   return <div class="empty"><h3>{title}</h3><div>{children}</div></div>;
+}
+
+// Renk kategorisi seçici: beş renk; her biri bir kategoridir.
+export function ColorPicker({ value, onChange, labels = true, allowNone = false }) {
+  const names = categoryNames.value;
+  return (
+    <div class="colors" role="radiogroup" aria-label="Renk kategorisi">
+      {allowNone && (
+        <button type="button" role="radio" aria-checked={!value} class={`color-chip${!value ? ' on' : ''}`} onClick={() => onChange('')}>Tümü</button>
+      )}
+      {PALETTE.map((p) => (
+        <button type="button" role="radio" key={p.key} aria-checked={value === p.key} title={names[p.key]} aria-label={names[p.key]}
+          class={`color-chip${value === p.key ? ' on' : ''}`} onClick={() => onChange(p.key)}>
+          <span class="dot" style={`background:${p.hex}`} />{labels && <span>{names[p.key]}</span>}
+        </button>
+      ))}
+    </div>
+  );
 }
