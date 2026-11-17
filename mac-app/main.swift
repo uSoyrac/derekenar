@@ -615,7 +615,7 @@ final class OnboardingController: NSObject, NSWindowDelegate {
     private func build() {
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        win.title = "Derkenar kurulumu"
+        win.title = "Derkenar"
         win.isReleasedWhenClosed = false
         win.delegate = self
 
@@ -654,7 +654,7 @@ final class OnboardingController: NSObject, NSWindowDelegate {
             connectButton,
             connectionStatus,
             heading("2. Kullanım"),
-            paragraph("Herhangi bir uygulamada metni seç ve kopyala (⌘C). Sonra ekranın kenarındaki Derkenar düğmesine (ya da menü çubuğundaki simgeye) bas ve bir renk seç."),
+            paragraph("Derkenar arkada çalışır; bu pencereyi kapatabilirsin. Herhangi bir uygulamada metni seç ve kopyala (⌘C). Sonra ekranın sağ kenarındaki yuvarlak Derkenar düğmesine (ya da menü çubuğundaki üç çizgili simgeye) bas ve bir renk seç."),
             heading("İsteğe bağlı: kopyalamadan kaydet"),
             paragraph("Erişilebilirlik izni verirsen ⌘C'ye basman gerekmez; Derkenar seçili metni kendisi okur ve Preview'da sayfa numarasını da alır. İzin vermesen de uygulama çalışır."),
             accessButton,
@@ -769,7 +769,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let smoke = CommandLine.arguments.contains("--smoke")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        // Dock'ta simgesi olan normal bir uygulama: simgeye tıklayınca Derkenar penceresi açılır.
+        NSApp.setActivationPolicy(.regular)
         buildMainMenu()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -795,11 +796,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             onboarding.show(activate: false)
             return
         }
-        if Settings.connection == nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.onboarding.show() }
-        } else {
-            refreshNames()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            self.onboarding.show()
+            if Settings.connection != nil {
+                self.toast("Derkenar çalışıyor. Metni kopyala (⌘C), sonra bu düğmeye basıp renk seç.", seconds: 7)
+            }
         }
+        if Settings.connection != nil { refreshNames() }
+    }
+
+    // Dock simgesine ya da uygulamaya yeniden tıklanınca pencereyi göster.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        onboarding.show()
+        return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
     }
 
     /// Tarayıcıdaki “Mac uygulamasını bağla” düğmesi derkenar://connect?code=... adresini açar.
@@ -831,6 +844,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // Yapıştırma (⌘V) gibi kısayolların bağlantı kodu penceresinde çalışması için.
     private func buildMainMenu() {
         let main = NSMenu()
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(actionItem("Derkenar penceresi", #selector(showOnboarding)))
+        appMenu.addItem(.separator())
+        let quitItem = NSMenuItem(title: "Derkenar'dan Çık", action: #selector(quit), keyEquivalent: "q")
+        quitItem.target = self
+        appMenu.addItem(quitItem)
+        appItem.submenu = appMenu
+        main.addItem(appItem)
         let editItem = NSMenuItem()
         let edit = NSMenu(title: "Düzen")
         edit.addItem(withTitle: "Kes", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
@@ -1002,11 +1024,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func showBubble() {
         if bubblePanel == nil {
-            let size: CGFloat = 52
+            let size: CGFloat = 58
             var origin = Settings.bubbleOrigin
             let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
             if origin == nil || !NSScreen.screens.contains(where: { $0.frame.contains(origin!) }) {
-                origin = NSPoint(x: screen.maxX - size - 14, y: screen.minY + 110)
+                origin = NSPoint(x: screen.maxX - size - 14, y: screen.midY - size / 2)
             }
             let panel = makeFloatingPanel(frame: NSRect(x: origin!.x, y: origin!.y, width: size, height: size))
             let view = BubbleView(frame: NSRect(x: 0, y: 0, width: size, height: size))
@@ -1029,7 +1051,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Bildirim
 
-    private func toast(_ message: String, error: Bool = false) {
+    private func toast(_ message: String, error: Bool = false, seconds: TimeInterval? = nil) {
         toastTimer?.invalidate()
         toastPanel?.orderOut(nil)
         let label = NSTextField(wrappingLabelWithString: message)
@@ -1059,7 +1081,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.contentView = background
         panel.orderFrontRegardless()
         toastPanel = panel
-        toastTimer = Timer.scheduledTimer(withTimeInterval: error ? 5 : 2.4, repeats: false) { [weak self] _ in
+        toastTimer = Timer.scheduledTimer(withTimeInterval: seconds ?? (error ? 5 : 2.4), repeats: false) { [weak self] _ in
             self?.toastPanel?.orderOut(nil)
         }
     }
