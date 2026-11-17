@@ -69,10 +69,18 @@ export async function stopWatch() {
   set({ state: 'off', name: '', lastScan: null, lastResult: null, progress: null });
 }
 
+// Tarama, pencere arkada ya da simge durumundayken de sürer: Preview'da okurken
+// Derkenar'a dönmek gerekmez. (Tarayıcı arka plan sekmelerinde zamanlayıcıyı dakikada bire indirir; yeterli.)
+let listening = false;
 function start() {
   set({ state: 'idle' });
   clearInterval(timer);
-  timer = setInterval(() => { if (document.visibilityState === 'visible') scanNow(); }, INTERVAL);
+  timer = setInterval(scanNow, INTERVAL);
+  if (!listening) {
+    listening = true;
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') scanNow(); });
+    window.addEventListener('focus', () => scanNow());
+  }
 }
 
 export async function scanNow() {

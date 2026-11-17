@@ -5,10 +5,30 @@ import { QuoteForm } from './quote-form.jsx';
 import { sources } from '../state.js';
 import { cleanUrl, splitSharedText } from '../lib/util.js';
 
+// Paylaşılan PDF sayısı (servis işçisi dosyaları geçici olarak saklar).
+export const sharedFileCount = signal(Number(new URLSearchParams(location.search).get('shared')) || 0);
 export const shareData = signal(readShare());
+
+// Servis işçisinin sakladığı paylaşılan PDF'leri alır ve saklama alanını boşaltır.
+export async function takeSharedFiles() {
+  sharedFileCount.value = 0;
+  if (!('caches' in window)) return [];
+  const cache = await caches.open('derkenar-paylasilan');
+  const files = [];
+  for (const req of await cache.keys()) {
+    const res = await cache.match(req);
+    if (res) {
+      const name = decodeURIComponent(res.headers.get('x-file-name') || 'paylasilan.pdf');
+      files.push(new File([await res.blob()], name, { type: res.headers.get('content-type') || 'application/pdf' }));
+    }
+    await cache.delete(req);
+  }
+  return files;
+}
 
 function readShare() {
   const p = new URLSearchParams(location.search);
+  if (p.has('shared')) { history.replaceState(null, '', location.pathname + location.hash); return null; }
   if (!p.has('text') && !p.has('url') && !p.has('title')) return null;
   const parsed = splitSharedText(p.get('text') || '');
   const url = cleanUrl(p.get('url') || parsed.url);

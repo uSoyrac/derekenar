@@ -276,6 +276,44 @@ console.log('Paylaşım hedefi (Android)');
   assert.equal(await page.locator('.source-list a').count(), 1);
   assert.match(await page.locator('.source-list a').innerText(), /2 alıntı/);
 
+  log('paylaş menüsünden gelen istek (servis işçisi): seçili metin');
+  await page.goto(web.url);
+  await page.waitForSelector('.shell');
+  await page.waitForFunction(() => navigator.serviceWorker?.controller, null, { timeout: 30000 });
+  const submitShare = (fields, fileB64) => page.evaluate(([f, b64]) => {
+    const form = document.createElement('form');
+    form.method = 'post'; form.enctype = 'multipart/form-data'; form.action = './share-target';
+    for (const [k, v] of Object.entries(f)) {
+      const input = document.createElement('input'); input.type = 'hidden'; input.name = k; input.value = v; form.append(input);
+    }
+    if (b64) {
+      const input = document.createElement('input'); input.type = 'file'; input.name = 'files';
+      const dt = new DataTransfer();
+      dt.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], 'Öz-yeterlik.pdf', { type: 'application/pdf' }));
+      input.files = dt.files; form.append(input);
+    }
+    document.body.append(form); form.submit();
+  }, [fields, fileB64]);
+  await Promise.all([page.waitForURL(/127\.0\.0\.1:\d+\/(#.*)?$/), submitShare({ title: 'Üçüncü Yazı', text: 'Gönderilen seçim.', url: 'https://example.org/b' })]);
+  await page.waitForSelector('.auth-card h1:has-text("Derkenar\'a kaydet")');
+  assert.equal(await page.inputValue('label:has-text("Alıntı") textarea'), 'Gönderilen seçim.');
+  await page.click('button[type=submit]');
+  await page.click('text=Kütüphaneyi aç');
+  await page.waitForFunction(() => document.querySelectorAll('.quote').length === 3);
+
+  log('paylaş menüsünden gelen PDF dosyası: çizimleri içe alınır');
+  await submitShare({}, fs.readFileSync(fx('oz-yeterlik.pdf')).toString('base64'));
+  await page.waitForFunction(() => document.querySelectorAll('.results li').length === 1 && !document.querySelector('.progress'), null, { timeout: 120000 });
+  assert.match(await page.locator('.results li').innerText(), /4 yeni alıntı eklendi/);
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('dialog', { state: 'detached' });
+  assert.equal(new URL(page.url()).search, '');
+  assert.equal(await countOf(page), 7);
+  // Sayfa yenilenince aynı dosya ikinci kez içe alınmaz
+  await page.reload();
+  await page.waitForSelector('.quote');
+  assert.equal(await page.locator('dialog').count(), 0);
+
   log('telefon görünümü: yatay taşma yok');
   for (const hash of ['#/', '#/kaynaklar', '#/projeler', '#/ayarlar']) {
     await page.goto(`${web.url}/${hash}`);
@@ -332,10 +370,15 @@ console.log('Klasör izleme');
   assert.deepEqual(res, { files: 2, changed: 1, added: 1, errors: 0 });
   assert.equal(await countOf(page), 5);
 
+  log('pencere yeniden öne gelince beklemeden taranır');
+  await write('taranmis.pdf', b64('taranmis.pdf'));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.waitForFunction(() => document.querySelector('.side nav a .n')?.textContent.trim() === '6', null, { timeout: 120000 });
+
   log('yeniden açılışta klasör hatırlanır ve hemen taranır');
   await write('Bandura - 1997 - Self-efficacy.pdf', b64('Bandura - 1997 - Self-efficacy.pdf'));
   await page.reload();
-  await page.waitForFunction(() => document.querySelector('.side nav a .n')?.textContent.trim() === '9', null, { timeout: 60000 });
+  await page.waitForFunction(() => document.querySelector('.side nav a .n')?.textContent.trim() === '10', null, { timeout: 60000 });
   await page.goto(`${web.url}/#/ayarlar`);
   await page.waitForSelector('.card:has-text("Klasör izleme") .badge.ok');
   assert.match(await page.locator('.card:has-text("Klasör izleme")').innerText(), /Okuma/);

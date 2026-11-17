@@ -6,7 +6,7 @@ import { SourcesView, SourceDetail } from './views/sources.jsx';
 import { ProjectsView, ProjectDetail } from './views/projects.jsx';
 import { SettingsView } from './views/settings.jsx';
 import { AuthView } from './views/auth.jsx';
-import { ShareView, shareData } from './views/share.jsx';
+import { ShareView, shareData, sharedFileCount, takeSharedFiles } from './views/share.jsx';
 import { AddDialog, addOpen, runImport } from './views/add.jsx';
 import { initWatch, watch } from './lib/watch.js';
 
@@ -66,6 +66,16 @@ export function App() {
       window.removeEventListener('drop', drop);
     };
   }, []);
+
+  // Telefonda başka bir uygulamadan paylaşılan PDF'ler: giriş tamamlanınca içe alınır.
+  const ready = phase.value === 'ready';
+  useEffect(() => {
+    if (!ready || !sharedFileCount.value) return;
+    takeSharedFiles().then((files) => {
+      if (files.length) runImport(files);
+      else notify('Paylaşılan dosya bulunamadı; PDF\'i “Ekle” ile seçebilirsin', 'error');
+    });
+  }, [ready]);
 
   const toastEl = toast.value && <div class={`toast ${toast.value.kind}`} role="status">{toast.value.message}</div>;
 

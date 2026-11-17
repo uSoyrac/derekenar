@@ -23,7 +23,8 @@ tek bir kütüphaneye düşer; oradan arar, etiketler, projelere ayırır ve Wor
 | Mac/PC'de PDF (Preview, Acrobat vb.) | Her zamanki gibi altını çiz, kaydet. İzlenen klasördeyse kendiliğinden düşer; değilse PDF'i uygulamaya sürükle. | Var |
 | Chrome'da web sayfası | Kenardaki Derkenar düğmesiyle çizim kipini aç; seçtiğin her yer kendiliğinden kaydedilir. Kip kapalıyken: seç → sağ tık → "Derkenar'a kaydet" (ya da Alt+Shift+S, ya da yan panel). | Yok |
 | Chrome'da açılan PDF | Seç → sağ tık → "Derkenar'a kaydet". | Yok |
-| Android | Seç → Paylaş → Derkenar. | Elle |
+| Android, web ya da herhangi bir uygulama | Seç → Paylaş → Derkenar. | Elle |
+| Android, çizim yapabilen bir PDF uygulaması | Okurken çiz; sonra dosyayı Paylaş → Derkenar. Çizimler içe alınır. | Var |
 | Mac'te başka uygulama | Seç → kısayol tuşu (bkz. `mac/KURULUM.md`). | Yok |
 | Basılı kitap | Uygulamada "Ekle" → yaz ya da mikrofonla söyle. | Elle |
 
@@ -82,9 +83,10 @@ hesap onay e-postasındaki bağlantı doğru yere dönsün.
 
 ## Bilinen sınırlar
 
-- **Klasör izleme uygulama açıkken çalışır.** Tarayıcı kapalıyken arka planda tarama yapılmaz;
-  uygulama açıldığında klasör hemen taranır, açık kaldıkça dakikada bir yenilenir. Yalnızca
-  masaüstü Chrome ve Edge'de vardır.
+- **Klasör izleme, Derkenar açıkken çalışır.** Pencere arkada ya da simge durumunda olabilir;
+  tarama dakikada bir sürer, pencere öne gelince hemen yenilenir. Derkenar tamamen kapalıyken
+  tarama yapılmaz; yeniden açıldığında aradaki çizimler alınır. Yalnızca masaüstü Chrome ve
+  Edge'de vardır.
 - **OCR, çizilen bölgeyi okur.** Taranmış sayfada yalnızca çizimin altındaki satırlar metne
   çevrilir (Türkçe ve İngilizce). Düşük çözünürlüklü taramalarda hata olabilir; alıntıyı
   "Düzenle" ile düzeltebilirsin.
