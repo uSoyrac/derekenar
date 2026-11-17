@@ -18,7 +18,7 @@ const selecting = signal(false);
 const selected = signal(new Set());
 
 const PERIODS = [['all', 'Tüm zamanlar'], ['7', 'Son 7 gün'], ['30', 'Son 30 gün'], ['90', 'Son 3 ay']];
-const ORIGINS = { 'pdf-ocr': 'OCR', extension: 'eklenti', share: 'paylaşım', shortcut: 'kısayol', capture: 'yakalama' };
+const ORIGINS = { 'pdf-ocr': 'OCR', extension: 'eklenti', share: 'paylaşım', shortcut: 'kısayol', capture: 'yakalama', mac: 'Mac' };
 
 function QuoteCard({ quote, showSource = true }) {
   const source = sourceById.value.get(quote.source_id);
