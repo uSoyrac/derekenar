@@ -1,0 +1,56 @@
+# Mac uygulamasını GitHub'ın macOS makinesinde derler, sınar ve indirilebilir sürüm olarak yayınlar.
+# Derleme çıktısı her durumda "ci-logs" dalına yazılır.
+name: Mac uygulaması
+
+on:
+  push:
+    branches: [main]
+    paths: ['mac-app/**', '.github/workflows/mac-app.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Derle ve sına
+        id: build
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          {
+            sw_vers
+            swiftc --version
+            bash mac-app/build.sh
+            echo "== açılış denemesi =="
+            mac-app/build/Derkenar.app/Contents/MacOS/Derkenar --smoke
+          } 2>&1 | tee build.log
+      - name: Derleme çıktısını ci-logs dalına yaz
+        if: always()
+        run: |
+          echo "sonuç: ${{ steps.build.outcome }} · $(git rev-parse --short HEAD) · $(date -u +%FT%TZ)" >> build.log
+          cp build.log /tmp/build.log
+          git config user.name "derkenar-ci"
+          git config user.email "ci@derkenar.invalid"
+          git checkout --orphan ci-logs-tmp
+          git rm -rfq --cached . || true
+          cp /tmp/build.log build.log
+          git add -f build.log
+          git commit -qm "Mac derleme çıktısı"
+          git push -f origin HEAD:ci-logs
+      - name: Sürümü yayınla
+        if: steps.build.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git checkout -qf "$GITHUB_SHA"
+          gh release delete mac-latest --yes --cleanup-tag || true
+          gh release create mac-latest mac-app/build/Derkenar-mac.zip \
+            --target "$GITHUB_SHA" --title "Derkenar (Mac)" \
+            --notes "Menü çubuğunda ve ekranın kenarında duran Derkenar. İndir, aç, Uygulamalar klasörüne taşı. Kurulum: mac-app/KURULUM.md"
+      - name: Başarısızsa işi kırmızıya çevir
+        if: steps.build.outcome != 'success'
+        run: exit 1

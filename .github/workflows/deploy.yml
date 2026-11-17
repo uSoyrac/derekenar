@@ -9,6 +9,7 @@ name: Yayınla
 on:
   push:
     branches: [main]
+    paths: ['web/**', '.github/workflows/deploy.yml']
   workflow_dispatch:
 
 permissions:
