@@ -7,12 +7,19 @@
   <key>CFBundleIdentifier</key><string>app.derkenar.mac</string>
   <key>CFBundleExecutable</key><string>Derkenar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.2.0</string>
-  <key>CFBundleVersion</key><string>2</string>
+  <key>CFBundleShortVersionString</key><string>0.3.0</string>
+  <key>CFBundleVersion</key><string>3</string>
   <key>CFBundleIconFile</key><string>Derkenar</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>LSUIElement</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>app.derkenar.mac.connect</string>
+      <key>CFBundleURLSchemes</key><array><string>derkenar</string></array>
+    </dict>
+  </array>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSAppleEventsUsageDescription</key><string>Derkenar, kaydettiğin alıntının kaynağını yazabilmek için tarayıcıdaki sayfanın adresini ve başlığını okur.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Derkenar, kaydettiğin alıntının kaynağını yazabilmek için öndeki uygulamadan sayfa adresini ya da belge adını okur.</string>
 </dict>
 </plist>

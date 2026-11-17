@@ -322,6 +322,54 @@ func findPageLabel(in window: AXUIElement) -> String? {
     return nil
 }
 
+/// Bağlantı için açılan web uygulaması (bağlantı kurulunca kütüphane adresi koddan gelir).
+let defaultWebApp = "https://usoyrac.github.io/derekenar/"
+
+/// derkenar://connect?code=... adresinden bağlantı kodunu çıkarır.
+func connectionCode(fromURL url: URL) -> String? {
+    guard url.scheme?.lowercased() == "derkenar", url.host?.lowercased() == "connect",
+          let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+          let code = items.first(where: { $0.name == "code" })?.value, !code.isEmpty
+    else { return nil }
+    return code
+}
+
+/// Panodaki metin. Parola yöneticilerinin "gizli" diye işaretlediği içerik okunmaz.
+func clipboardText() -> String? {
+    let pasteboard = NSPasteboard.general
+    let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    if pasteboard.types?.contains(concealed) == true { return nil }
+    guard let raw = pasteboard.string(forType: .string) else { return nil }
+    let text = normalizeSelection(raw)
+    return text.isEmpty ? nil : text
+}
+
+/// Preview'da öndeki belgenin yolu ve pencere adı (Erişilebilirlik izni gerektirmez; macOS bir kez izin sorar).
+func previewInfo() -> (path: String?, windowName: String?)? {
+    let source = """
+    tell application id "com.apple.Preview"
+        set p to ""
+        set w to ""
+        try
+            set p to (path of front document) as text
+        end try
+        try
+            set w to name of front window
+        end try
+        return {p, w}
+    end tell
+    """
+    guard let apple = NSAppleScript(source: source) else { return nil }
+    var error: NSDictionary?
+    let result = apple.executeAndReturnError(&error)
+    guard error == nil, result.numberOfItems >= 2 else { return nil }
+    var path = result.atIndex(1)?.stringValue ?? ""
+    // Eski tarz "Disk:Klasör:dosya.pdf" yolu gelirse dosya adı yine doğru çıksın.
+    if !path.hasPrefix("/") { path = path.replacingOccurrences(of: ":", with: "/") }
+    let name = result.atIndex(2)?.stringValue ?? ""
+    return (path.isEmpty ? nil : path, name.isEmpty ? nil : name)
+}
+
 let chromiumBrowsers: Set<String> = [
     "com.google.Chrome", "com.brave.Browser", "com.microsoft.edgemac", "company.thebrowser.Browser",
     "org.chromium.Chromium", "com.vivaldi.Vivaldi",
@@ -348,15 +396,26 @@ func captureContext(app: NSRunningApplication) -> CaptureContext {
     var context = CaptureContext()
     context.appName = app.localizedName ?? ""
     context.bundleId = app.bundleIdentifier ?? ""
-    let element = AXUIElementCreateApplication(app.processIdentifier)
-    AXUIElementSetMessagingTimeout(element, 1.5)
-    let window = axElement(element, kAXFocusedWindowAttribute as String) ?? axElement(element, kAXMainWindowAttribute as String)
-    if let window = window {
-        context.windowTitle = axString(window, kAXTitleAttribute as String) ?? ""
-        if let document = axString(window, kAXDocumentAttribute as String) {
-            context.documentPath = URL(string: document)?.path ?? document
+    if AXIsProcessTrusted() {
+        let element = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(element, 1.5)
+        let window = axElement(element, kAXFocusedWindowAttribute as String) ?? axElement(element, kAXMainWindowAttribute as String)
+        if let window = window {
+            context.windowTitle = axString(window, kAXTitleAttribute as String) ?? ""
+            if let document = axString(window, kAXDocumentAttribute as String) {
+                context.documentPath = URL(string: document)?.path ?? document
+            }
+            context.page = parsePage(context.windowTitle) ?? findPageLabel(in: window)
         }
-        context.page = parsePage(context.windowTitle) ?? findPageLabel(in: window)
+    }
+    // Preview: belge yolu ve pencere adı doğrudan Preview'a sorulur (izin olmasa da çalışır).
+    if context.bundleId == "com.apple.Preview", context.documentPath == nil || context.page == nil,
+       let info = previewInfo() {
+        if context.documentPath == nil { context.documentPath = info.path }
+        if let name = info.windowName {
+            if context.windowTitle.isEmpty { context.windowTitle = name }
+            if context.page == nil { context.page = parsePage(name) }
+        }
     }
     if let info = browserInfo(bundleId: context.bundleId) {
         context.url = info.url
@@ -447,19 +506,20 @@ func dotImage(_ color: NSColor) -> NSImage {
 final class BubbleView: NSView {
     var onClick: (() -> Void)?
     var ringColor: NSColor = nsColor(hex: palette[0].hex) { didSet { needsDisplay = true } }
+    var armed = false { didSet { needsDisplay = true } }   // çizim kipi açık
     private var dragStart: NSPoint?
     private var windowStart: NSPoint?
     private var dragged = false
 
     override func draw(_ dirtyRect: NSRect) {
         let circle = bounds.insetBy(dx: 3, dy: 3)
-        NSColor(srgbRed: 0.13, green: 0.12, blue: 0.11, alpha: 0.96).setFill()
+        (armed ? ringColor : NSColor(srgbRed: 0.13, green: 0.12, blue: 0.11, alpha: 0.96)).setFill()
         NSBezierPath(ovalIn: circle).fill()
         ringColor.setStroke()
         let ring = NSBezierPath(ovalIn: circle.insetBy(dx: 1.5, dy: 1.5))
         ring.lineWidth = 3
         ring.stroke()
-        let icon = barsImage(size: bounds.width * 0.42, color: NSColor(white: 0.93, alpha: 1))
+        let icon = barsImage(size: bounds.width * 0.42, color: armed ? NSColor(white: 0.1, alpha: 1) : NSColor(white: 0.93, alpha: 1))
         let side = bounds.width * 0.42
         icon.draw(in: NSRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side))
     }
@@ -515,6 +575,7 @@ func makeFloatingPanel(frame: NSRect) -> FloatingPanel {
 final class OnboardingController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let codeField = NSTextField()
+    private let browserButton = NSButton(title: "Tarayıcıda bağlan (önerilen)", target: nil, action: nil)
     private let connectButton = NSButton(title: "Bağlan", target: nil, action: nil)
     private let connectionStatus = NSTextField(wrappingLabelWithString: "")
     private let accessButton = NSButton(title: "Erişilebilirlik iznini aç", target: nil, action: nil)
@@ -552,7 +613,7 @@ final class OnboardingController: NSObject, NSWindowDelegate {
     }
 
     private func build() {
-        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 460),
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
         win.title = "Derkenar kurulumu"
         win.isReleasedWhenClosed = false
@@ -566,6 +627,9 @@ final class OnboardingController: NSObject, NSWindowDelegate {
         codeField.widthAnchor.constraint(equalToConstant: 440).isActive = true
         codeField.heightAnchor.constraint(equalToConstant: 58).isActive = true
 
+        browserButton.target = self
+        browserButton.action = #selector(connectInBrowser)
+        browserButton.bezelStyle = .rounded
         connectButton.target = self
         connectButton.action = #selector(connect)
         connectButton.bezelStyle = .rounded
@@ -583,23 +647,25 @@ final class OnboardingController: NSObject, NSWindowDelegate {
 
         let stack = NSStackView(views: [
             heading("1. Kütüphaneye bağlan"),
-            paragraph("Tarayıcıda Derkenar'ı aç → Ayarlar → “Eklenti ve kısayol bağlantısı” → Bağlantı kodu oluştur → Kopyala. Sonra kodu aşağıya yapıştır."),
+            paragraph("Düğmeye bas: tarayıcıda Derkenar açılır. Oradaki “Mac uygulamasını bağla” düğmesine bas ve tarayıcının “Derkenar açılsın mı?” sorusuna izin ver."),
+            browserButton,
+            paragraph("Ya da bağlantı kodunu elle yapıştır:"),
             codeField,
             connectButton,
             connectionStatus,
-            heading("2. Seçtiğin metni okuma izni"),
-            paragraph("Derkenar'ın başka uygulamalarda seçtiğin metni okuyabilmesi için macOS'in Erişilebilirlik izni gerekir. Düğmeye bas; açılan Sistem Ayarları sayfasında listedeki Derkenar'ın anahtarını aç."),
+            heading("2. Kullanım"),
+            paragraph("Herhangi bir uygulamada metni seç ve kopyala (⌘C). Sonra ekranın kenarındaki Derkenar düğmesine (ya da menü çubuğundaki simgeye) bas ve bir renk seç."),
+            heading("İsteğe bağlı: kopyalamadan kaydet"),
+            paragraph("Erişilebilirlik izni verirsen ⌘C'ye basman gerekmez; Derkenar seçili metni kendisi okur ve Preview'da sayfa numarasını da alır. İzin vermesen de uygulama çalışır."),
             accessButton,
             accessStatus,
-            heading("Kullanım"),
-            paragraph("Herhangi bir uygulamada metni seç, ekranın kenarındaki Derkenar düğmesine (ya da menü çubuğundaki simgeye) bas ve bir renk seç."),
             doneButton,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
         stack.setCustomSpacing(18, after: connectionStatus)
-        stack.setCustomSpacing(18, after: accessStatus)
+        stack.setCustomSpacing(14, after: accessStatus)
         stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
         stack.translatesAutoresizingMaskIntoConstraints = false
         let content = NSView()
@@ -626,14 +692,15 @@ final class OnboardingController: NSObject, NSWindowDelegate {
         }
         let trusted = AXIsProcessTrusted()
         accessButton.isHidden = trusted
-        accessStatus.stringValue = trusted ? "✓ İzin verildi." : "İzin bekleniyor."
+        accessStatus.stringValue = trusted ? "✓ İzin verildi: kopyalamadan kaydedebilirsin." : "İzin verilmedi: kaydetmeden önce metni kopyala (⌘C)."
         accessStatus.textColor = trusted ? .systemGreen : .secondaryLabelColor
         if trusted && !wasTrusted { wasTrusted = true; onTrusted?() }
-        doneButton.isEnabled = connected && trusted
+        doneButton.isEnabled = connected
     }
 
-    @objc private func connect() {
-        guard let conn = decodeConnectionCode(codeField.stringValue) else {
+    /// Bağlantı kodunu doğrular ve kaydeder (elle yapıştırma ve tarayıcıdan gelen bağlantı ortak yolu).
+    func connect(code: String) {
+        guard let conn = decodeConnectionCode(code) else {
             message = "Kod okunamadı. Kodun tamamını kopyalayıp yapıştırdığından emin ol."
             messageIsError = true
             refresh()
@@ -659,6 +726,15 @@ final class OnboardingController: NSObject, NSWindowDelegate {
             }
             self.refresh()
         }
+    }
+
+    @objc private func connectInBrowser() {
+        let base = Settings.connection?.a ?? defaultWebApp
+        if let url = URL(string: base + "?baglan=mac#/ayarlar") { NSWorkspace.shared.open(url) }
+    }
+
+    @objc private func connect() {
+        connect(code: codeField.stringValue)
     }
 
     @objc private func requestAccess() {
@@ -687,6 +763,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var toastTimer: Timer?
     private var lastExternalApp: NSRunningApplication?
     private var hotkeyMonitor: Any?
+    private var penTimer: Timer?        // çizim kipi: kopyalanan her metin kaydedilir
+    private var penChangeCount = 0
     private let onboarding = OnboardingController()
     private let smoke = CommandLine.arguments.contains("--smoke")
 
@@ -717,12 +795,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             onboarding.show(activate: false)
             return
         }
-        if Settings.connection == nil || !AXIsProcessTrusted() {
-            // İzin isteği, Derkenar'ı Erişilebilirlik listesine de ekler.
-            if !AXIsProcessTrusted() { requestAccessibility() }
+        if Settings.connection == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.onboarding.show() }
+        } else {
+            refreshNames()
         }
-        if Settings.connection != nil { refreshNames() }
+    }
+
+    /// Tarayıcıdaki “Mac uygulamasını bağla” düğmesi derkenar://connect?code=... adresini açar.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            if let code = connectionCode(fromURL: url) {
+                onboarding.show()
+                onboarding.connect(code: code)
+            }
+        }
     }
 
     /// ⌃⌥D: son kullanılan renkle kaydet. Genel tuş dinleme, Erişilebilirlik izni verildikten sonra çalışır.
@@ -775,8 +862,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let ready = Settings.connection != nil && AXIsProcessTrusted()
-        menu.addItem(actionItem(ready ? "Kurulum ve bağlantı…" : "⚠︎ Kurulumu tamamla…", #selector(showOnboarding)))
+        let pen = actionItem("Çizim kipi: kopyaladığım her metni kaydet", #selector(togglePen))
+        pen.state = penTimer == nil ? .off : .on
+        pen.toolTip = "Açıkken ⌘C ile kopyaladığın her metin, son seçtiğin renkle kaydedilir."
+        menu.addItem(pen)
+        menu.addItem(.separator())
+        menu.addItem(actionItem(Settings.connection != nil ? "Kurulum ve bağlantı…" : "⚠︎ Kurulumu tamamla…", #selector(showOnboarding)))
         menu.addItem(actionItem(Settings.bubbleHidden ? "Kenar düğmesini göster" : "Kenar düğmesini gizle", #selector(toggleBubble)))
         menu.addItem(actionItem("Kütüphaneyi aç", #selector(openLibrary)))
         if #available(macOS 13.0, *) {
@@ -814,6 +905,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         onboarding.show()
     }
 
+    @objc private func togglePen() {
+        if let timer = penTimer {
+            timer.invalidate()
+            penTimer = nil
+            bubbleView?.armed = false
+            toast("Çizim kipi kapandı")
+            return
+        }
+        guard Settings.connection != nil else { onboarding.show(); return }
+        penChangeCount = NSPasteboard.general.changeCount
+        penTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            let count = NSPasteboard.general.changeCount
+            guard count != self.penChangeCount else { return }
+            self.penChangeCount = count
+            if let text = clipboardText() { self.save(text: text, colorKey: Settings.lastColor) }
+        }
+        bubbleView?.armed = true
+        toast("Çizim kipi açık (\(Settings.name(for: Settings.lastColor))): metni seç, ⌘C'ye bas, kaydedilsin")
+    }
+
     @available(macOS 13.0, *)
     @objc private func toggleLoginItem() {
         do {
@@ -838,27 +950,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Yakalama
 
+    /// Tek seferlik kayıt: izin varsa seçili metni okur, yoksa panodaki (⌘C ile kopyalanmış) metni kullanır.
     private func capture(colorKey: String) {
-        guard Settings.connection != nil, AXIsProcessTrusted() else {
-            toast("Önce kurulumu tamamla: bağlantı kodu ve Erişilebilirlik izni", error: true)
+        guard Settings.connection != nil else {
+            toast("Önce kütüphaneye bağlan", error: true)
             onboarding.show()
             return
         }
-        var target = NSWorkspace.shared.frontmostApplication
-        if target == nil || target?.processIdentifier == ProcessInfo.processInfo.processIdentifier { target = lastExternalApp }
-        guard let app = target else { toast("Öndeki uygulama bulunamadı", error: true); return }
-
-        guard let text = grabSelection(pid: app.processIdentifier) else {
-            toast("Seçili metin bulunamadı. Önce metni seç, sonra rengi seç.", error: true)
+        Settings.lastColor = category(colorKey).key
+        bubbleView?.ringColor = nsColor(hex: category(colorKey).hex)
+        var text: String?
+        if AXIsProcessTrusted(), let app = targetApp() { text = grabSelection(pid: app.processIdentifier) }
+        if text == nil { text = clipboardText() }
+        guard let found = text else {
+            toast(AXIsProcessTrusted()
+                ? "Seçili metin bulunamadı. Önce metni seç, sonra rengi seç."
+                : "Önce metni seçip kopyala (⌘C), sonra rengi seç.", error: true)
             return
         }
-        if text.count > 18000 { toast("Seçim çok uzun; daha kısa bir bölüm seç", error: true); return }
-        let context = captureContext(app: app)
-        let cat = category(colorKey)
-        Settings.lastColor = cat.key
-        bubbleView?.ringColor = nsColor(hex: cat.hex)
-        let payload = buildPayload(text: text, colorHex: cat.hex, context: context)
+        // Çizim kipi açıksa bu metni ikinci kez kaydetmesin.
+        penChangeCount = NSPasteboard.general.changeCount
+        save(text: found, colorKey: colorKey)
+    }
 
+    private func targetApp() -> NSRunningApplication? {
+        let front = NSWorkspace.shared.frontmostApplication
+        if let app = front, app.processIdentifier != ProcessInfo.processInfo.processIdentifier { return app }
+        return lastExternalApp
+    }
+
+    private func save(text: String, colorKey: String) {
+        if text.count > 18000 { toast("Seçim çok uzun; daha kısa bir bölüm seç", error: true); return }
+        let cat = category(colorKey)
+        var context = CaptureContext()
+        if let app = targetApp() { context = captureContext(app: app) }
+        let payload = buildPayload(text: text, colorHex: cat.hex, context: context)
         rpc("capture", ["p_payload": payload]) { result in
             switch result {
             case .success(let json):
@@ -969,6 +1095,14 @@ func runSelfTest() -> Bool {
     check(decodeConnectionCode(String(code.prefix(40)) + "\n" + String(code.dropFirst(40))) == conn, "satıra bölünmüş bağlantı kodu")
     check(decodeConnectionCode("bozuk-kod") == nil, "bozuk bağlantı kodu reddedilir")
     check(decodeConnectionCode(Data("{\"u\":\"https://x\",\"k\":\"k\",\"t\":\"kisa\"}".utf8).base64EncodedString()) == nil, "eksik bağlantı kodu reddedilir")
+
+    var link = URLComponents()
+    link.scheme = "derkenar"
+    link.host = "connect"
+    link.queryItems = [URLQueryItem(name: "code", value: code)]
+    check(link.url.flatMap { connectionCode(fromURL: $0) } == code, "bağlantı adresinden kodu alma")
+    check(connectionCode(fromURL: URL(string: "derkenar://connect?code=YWJj%2BZGVm%2Fw%3D%3D")!) == "YWJj+ZGVm/w==", "adresteki kodun kaçış karakterleri çözülür")
+    check(connectionCode(fromURL: URL(string: "derkenar://baska?code=abc")!) == nil && connectionCode(fromURL: URL(string: "https://connect?code=abc")!) == nil, "yabancı adres reddedilir")
 
     var preview = CaptureContext()
     preview.appName = "Preview"

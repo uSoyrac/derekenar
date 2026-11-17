@@ -116,6 +116,18 @@ function Tokens() {
       load();
     } catch (err) { notify(err.message, 'error'); }
   };
+  // Mac uygulaması: kod kopyalamadan, derkenar:// adresiyle bağlanır.
+  const fromMac = new URLSearchParams(location.search).get('baglan') === 'mac';
+  const connectMac = async () => {
+    try {
+      const token = await driver.createToken('Mac uygulaması');
+      const cfg = cloudConfig.value;
+      const code = btoa(JSON.stringify({ u: cfg.url, k: cfg.key, t: token, a: location.origin + location.pathname }));
+      load();
+      history.replaceState(null, '', location.pathname + location.hash);
+      location.href = `derkenar://connect?code=${encodeURIComponent(code)}`;
+    } catch (err) { notify(err.message, 'error'); }
+  };
   const revoke = async (id) => {
     if (!confirm('Bu bağlantı kodu iptal edilsin mi? Onu kullanan eklenti ya da kısayol artık kaydedemez.')) return;
     await driver.revokeToken(id);
@@ -124,7 +136,11 @@ function Tokens() {
   return (
     <section class="card">
       <h3>Eklenti ve kısayol bağlantısı</h3>
-      <p>Chrome eklentisini ya da Mac kısayolunu hesabına bağlamak için bir bağlantı kodu oluştur ve aracın ayarına yapıştır.</p>
+      <div class={`status ${fromMac ? 'info' : ''}`}>
+        <p><strong>Mac uygulaması:</strong> Derkenar Mac'inde kuruluysa tek tıkla bağla. Tarayıcı “Derkenar açılsın mı?” diye sorar; izin ver.</p>
+        <button class="btn primary" onClick={connectMac}>Mac uygulamasını bağla</button>
+      </div>
+      <p>Chrome eklentisini bağlamak için bir bağlantı kodu oluştur ve eklentinin ayarına yapıştır.</p>
       <form class="row" onSubmit={create}>
         <input class="grow" value={label} placeholder="Ad (örn. Mac'teki Chrome)" onInput={(e) => setLabel(e.currentTarget.value)} aria-label="Bağlantı adı" />
         <button class="btn primary" type="submit">Bağlantı kodu oluştur</button>
