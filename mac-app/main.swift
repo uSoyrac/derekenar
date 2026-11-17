@@ -402,6 +402,23 @@ func rpc(_ function: String, _ arguments: [String: Any], completion: @escaping (
     }.resume()
 }
 
+func describe(_ error: ApiError) -> String {
+    switch error {
+    case .notConnected: return "Önce bağlantı kodunu gir (Derkenar düğmesi → Kurulum ve bağlantı)"
+    case .server(let message): return message
+    case .network: return "Sunucuya ulaşılamadı; internet bağlantını kontrol et"
+    }
+}
+
+let accessibilitySettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+
+/// macOS'in izin penceresini gösterir; bu çağrı Derkenar'ı Erişilebilirlik listesine de ekler.
+@discardableResult
+func requestAccessibility() -> Bool {
+    let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+    return AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+}
+
 // MARK: - Görünüm: simge, düğme, bildirim
 
 func barsImage(size: CGFloat, color: NSColor) -> NSImage {
@@ -492,6 +509,174 @@ func makeFloatingPanel(frame: NSRect) -> FloatingPanel {
     return panel
 }
 
+// MARK: - Kurulum penceresi
+
+/// İlk açılışta iki adımı tek pencerede toplar: kütüphane bağlantısı ve Erişilebilirlik izni.
+final class OnboardingController: NSObject, NSWindowDelegate {
+    private var window: NSWindow?
+    private let codeField = NSTextField()
+    private let connectButton = NSButton(title: "Bağlan", target: nil, action: nil)
+    private let connectionStatus = NSTextField(wrappingLabelWithString: "")
+    private let accessButton = NSButton(title: "Erişilebilirlik iznini aç", target: nil, action: nil)
+    private let accessStatus = NSTextField(wrappingLabelWithString: "")
+    private let doneButton = NSButton(title: "Tamam", target: nil, action: nil)
+    private var timer: Timer?
+    private var message: String?
+    private var messageIsError = false
+    private var wasTrusted = AXIsProcessTrusted()
+    var onConnected: (() -> Void)?
+    var onTrusted: (() -> Void)?
+
+    func show(activate: Bool = true) {
+        if window == nil { build() }
+        refresh()
+        if activate { NSApp.activate(ignoringOtherApps: true) }
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
+    }
+
+    private func heading(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = .boldSystemFont(ofSize: 14)
+        return label
+    }
+
+    private func paragraph(_ text: String) -> NSTextField {
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = .systemFont(ofSize: 12.5)
+        label.textColor = .secondaryLabelColor
+        label.preferredMaxLayoutWidth = 440
+        return label
+    }
+
+    private func build() {
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 460),
+                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        win.title = "Derkenar kurulumu"
+        win.isReleasedWhenClosed = false
+        win.delegate = self
+
+        codeField.placeholderString = "Bağlantı kodunu buraya yapıştır (⌘V)"
+        codeField.usesSingleLineMode = false
+        codeField.cell?.wraps = true
+        codeField.cell?.isScrollable = false
+        codeField.translatesAutoresizingMaskIntoConstraints = false
+        codeField.widthAnchor.constraint(equalToConstant: 440).isActive = true
+        codeField.heightAnchor.constraint(equalToConstant: 58).isActive = true
+
+        connectButton.target = self
+        connectButton.action = #selector(connect)
+        connectButton.bezelStyle = .rounded
+        accessButton.target = self
+        accessButton.action = #selector(requestAccess)
+        accessButton.bezelStyle = .rounded
+        doneButton.target = self
+        doneButton.action = #selector(close)
+        doneButton.bezelStyle = .rounded
+        doneButton.keyEquivalent = "\r"
+        for label in [connectionStatus, accessStatus] {
+            label.font = .systemFont(ofSize: 12.5)
+            label.preferredMaxLayoutWidth = 440
+        }
+
+        let stack = NSStackView(views: [
+            heading("1. Kütüphaneye bağlan"),
+            paragraph("Tarayıcıda Derkenar'ı aç → Ayarlar → “Eklenti ve kısayol bağlantısı” → Bağlantı kodu oluştur → Kopyala. Sonra kodu aşağıya yapıştır."),
+            codeField,
+            connectButton,
+            connectionStatus,
+            heading("2. Seçtiğin metni okuma izni"),
+            paragraph("Derkenar'ın başka uygulamalarda seçtiğin metni okuyabilmesi için macOS'in Erişilebilirlik izni gerekir. Düğmeye bas; açılan Sistem Ayarları sayfasında listedeki Derkenar'ın anahtarını aç."),
+            accessButton,
+            accessStatus,
+            heading("Kullanım"),
+            paragraph("Herhangi bir uygulamada metni seç, ekranın kenarındaki Derkenar düğmesine (ya da menü çubuğundaki simgeye) bas ve bir renk seç."),
+            doneButton,
+        ])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.setCustomSpacing(18, after: connectionStatus)
+        stack.setCustomSpacing(18, after: accessStatus)
+        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        let content = NSView()
+        content.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: content.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        win.contentView = content
+        win.initialFirstResponder = codeField
+        window = win
+    }
+
+    private func refresh() {
+        let connected = Settings.connection != nil
+        if let message = message {
+            connectionStatus.stringValue = message
+            connectionStatus.textColor = messageIsError ? .systemRed : .systemGreen
+        } else {
+            connectionStatus.stringValue = connected ? "✓ Kütüphaneye bağlı. Kodu değiştirmek için yenisini yapıştırıp Bağlan'a bas." : "Henüz bağlı değil."
+            connectionStatus.textColor = connected ? .systemGreen : .secondaryLabelColor
+        }
+        let trusted = AXIsProcessTrusted()
+        accessButton.isHidden = trusted
+        accessStatus.stringValue = trusted ? "✓ İzin verildi." : "İzin bekleniyor."
+        accessStatus.textColor = trusted ? .systemGreen : .secondaryLabelColor
+        if trusted && !wasTrusted { wasTrusted = true; onTrusted?() }
+        doneButton.isEnabled = connected && trusted
+    }
+
+    @objc private func connect() {
+        guard let conn = decodeConnectionCode(codeField.stringValue) else {
+            message = "Kod okunamadı. Kodun tamamını kopyalayıp yapıştırdığından emin ol."
+            messageIsError = true
+            refresh()
+            return
+        }
+        let previous = Settings.connection
+        Settings.connection = conn
+        message = "Bağlanıyor…"
+        messageIsError = false
+        refresh()
+        rpc("token_status", [:]) { result in
+            switch result {
+            case .success(let json):
+                let count = ((json as? [String: Any])?["quotes"] as? Int) ?? 0
+                self.codeField.stringValue = ""
+                self.message = "✓ Bağlandı. Kütüphanende \(count) alıntı var."
+                self.messageIsError = false
+                self.onConnected?()
+            case .failure(let error):
+                Settings.connection = previous
+                self.message = describe(error)
+                self.messageIsError = true
+            }
+            self.refresh()
+        }
+    }
+
+    @objc private func requestAccess() {
+        requestAccessibility()
+        if let url = URL(string: accessibilitySettingsURL) { NSWorkspace.shared.open(url) }
+    }
+
+    @objc private func close() {
+        window?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        timer?.invalidate()
+        timer = nil
+        message = nil
+    }
+}
+
 // MARK: - Uygulama
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -501,6 +686,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var toastPanel: FloatingPanel?
     private var toastTimer: Timer?
     private var lastExternalApp: NSRunningApplication?
+    private var hotkeyMonitor: Any?
+    private let onboarding = OnboardingController()
     private let smoke = CommandLine.arguments.contains("--smoke")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -522,19 +709,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if !Settings.bubbleHidden { showBubble() }
 
-        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        onboarding.onConnected = { [weak self] in self?.refreshNames() }
+        onboarding.onTrusted = { [weak self] in self?.installHotkey() }
+        installHotkey()
+
+        if smoke {
+            onboarding.show(activate: false)
+            return
+        }
+        if Settings.connection == nil || !AXIsProcessTrusted() {
+            // İzin isteği, Derkenar'ı Erişilebilirlik listesine de ekler.
+            if !AXIsProcessTrusted() { requestAccessibility() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.onboarding.show() }
+        }
+        if Settings.connection != nil { refreshNames() }
+    }
+
+    /// ⌃⌥D: son kullanılan renkle kaydet. Genel tuş dinleme, Erişilebilirlik izni verildikten sonra çalışır.
+    private func installHotkey() {
+        guard hotkeyMonitor == nil, AXIsProcessTrusted() else { return }
+        hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if flags == [.control, .option], event.charactersIgnoringModifiers?.lowercased() == "d" {
                 DispatchQueue.main.async { self?.capture(colorKey: Settings.lastColor) }
             }
-        }
-
-        if smoke { return }
-        if Settings.connection == nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.askConnectionCode() }
-        } else {
-            refreshNames()
-            _ = ensureAccessibility(prompt: true)
         }
     }
 
@@ -577,12 +775,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        if !AXIsProcessTrusted() {
-            menu.addItem(actionItem("Erişilebilirlik izni ver…", #selector(openAccessibility)))
-        }
+        let ready = Settings.connection != nil && AXIsProcessTrusted()
+        menu.addItem(actionItem(ready ? "Kurulum ve bağlantı…" : "⚠︎ Kurulumu tamamla…", #selector(showOnboarding)))
         menu.addItem(actionItem(Settings.bubbleHidden ? "Kenar düğmesini göster" : "Kenar düğmesini gizle", #selector(toggleBubble)))
         menu.addItem(actionItem("Kütüphaneyi aç", #selector(openLibrary)))
-        menu.addItem(actionItem(Settings.connection == nil ? "Bağlantı kodunu gir…" : "Bağlantı kodunu değiştir…", #selector(askConnectionCode)))
         if #available(macOS 13.0, *) {
             let login = actionItem("Oturum açılışında başlat", #selector(toggleLoginItem))
             login.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -611,14 +807,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openLibrary() {
         if let address = Settings.connection?.a, let url = URL(string: address) { NSWorkspace.shared.open(url) }
-        else { toast("Önce bağlantı kodunu gir", error: true) }
+        else { onboarding.show() }
     }
 
-    @objc private func openAccessibility() {
-        _ = ensureAccessibility(prompt: true)
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
+    @objc private func showOnboarding() {
+        onboarding.show()
     }
 
     @available(macOS 13.0, *)
@@ -635,46 +828,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.terminate(nil)
     }
 
-    private func ensureAccessibility(prompt: Bool) -> Bool {
-        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        return AXIsProcessTrustedWithOptions([key: prompt] as CFDictionary)
-    }
-
     // MARK: Bağlantı
-
-    @objc private func askConnectionCode() {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "Derkenar'ı kütüphanene bağla"
-        alert.informativeText = "Derkenar'da Ayarlar → “Eklenti ve kısayol bağlantısı” bölümünden bir bağlantı kodu oluştur, kopyala ve buraya yapıştır (⌘V)."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 72))
-        field.placeholderString = "Bağlantı kodu"
-        field.usesSingleLineMode = false
-        field.cell?.wraps = true
-        field.cell?.isScrollable = false
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Bağlan")
-        alert.addButton(withTitle: "Vazgeç")
-        alert.window.initialFirstResponder = field
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        guard let conn = decodeConnectionCode(field.stringValue) else {
-            toast("Bağlantı kodu okunamadı; kodu eksiksiz yapıştır", error: true)
-            return
-        }
-        Settings.connection = conn
-        rpc("token_status", [:]) { result in
-            switch result {
-            case .success(let json):
-                let count = ((json as? [String: Any])?["quotes"] as? Int) ?? 0
-                self.toast("Bağlandı. Kütüphanende \(count) alıntı var.")
-                self.refreshNames()
-                _ = self.ensureAccessibility(prompt: true)
-            case .failure(let error):
-                Settings.connection = nil
-                self.toast(self.describe(error), error: true)
-            }
-        }
-    }
 
     private func refreshNames() {
         rpc("user_categories", [:]) { result in
@@ -682,20 +836,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func describe(_ error: ApiError) -> String {
-        switch error {
-        case .notConnected: return "Önce bağlantı kodunu gir (menü çubuğundaki Derkenar simgesi)"
-        case .server(let message): return message
-        case .network: return "Sunucuya ulaşılamadı; internet bağlantını kontrol et"
-        }
-    }
-
     // MARK: Yakalama
 
     private func capture(colorKey: String) {
-        guard Settings.connection != nil else { askConnectionCode(); return }
-        guard ensureAccessibility(prompt: true) else {
-            toast("Seçimi okuyabilmem için Erişilebilirlik izni gerekiyor (menüden “Erişilebilirlik izni ver”)", error: true)
+        guard Settings.connection != nil, AXIsProcessTrusted() else {
+            toast("Önce kurulumu tamamla: bağlantı kodu ve Erişilebilirlik izni", error: true)
+            onboarding.show()
             return
         }
         var target = NSWorkspace.shared.frontmostApplication
@@ -721,7 +867,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if !duplicate, let page = context.page { message += " · s. \(page)" }
                 self.toast(message)
             case .failure(let error):
-                self.toast(self.describe(error), error: true)
+                self.toast(describe(error), error: true)
             }
         }
     }
