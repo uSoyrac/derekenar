@@ -1,0 +1,51 @@
+ProductName:		macOS
+ProductVersion:		26.7.2
+BuildVersion:		25G332
+swift-driver version: 1.148.6 Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
+Target: arm64-apple-macosx26.0
+== kendi kendini sınama ==
+  ok  Preview başlığından sayfa (İngilizce)
+  ok  Preview başlığından sayfa (Türkçe)
+  ok  sayfa bilgisi olmayan başlık
+  ok  dosya adındaki sayılar sayfa sanılmaz
+  ok  kısa araç çubuğu etiketi
+  ok  araç çubuğu etiketi (Page)
+  ok  başlıktan sayfa bilgisini atma
+  ok  sade başlık değişmez
+  ok  satır sonu ve tire birleştirme
+  ok  boşluk sadeleştirme
+  ok  büyük harfle başlayan satırda tire korunur
+  ok  boş seçim
+  ok  bağlantı kodunu çözme
+  ok  satıra bölünmüş bağlantı kodu
+  ok  bozuk bağlantı kodu reddedilir
+  ok  eksik bağlantı kodu reddedilir
+  ok  bağlantı adresinden kodu alma
+  ok  adresteki kodun kaçış karakterleri çözülür
+  ok  yabancı adres reddedilir
+  ok  Preview: dosya adı
+  ok  Preview: başlık
+  ok  Preview: tür ve sayfa
+  ok  renk ve köken
+  ok  belge yolu yoksa başlıktan dosya adı
+  ok  web: adresten # kısmı atılır
+  ok  web: başlık ve tür
+  ok  diğer uygulama: pencere başlığı
+  ok  kayıt JSON'a çevrilebilir
+  ok  renk kategorisi
+  ok  kategori adı: özel ad ya da renk adı
+  ok  deneme PDF'i üretildi
+  ok  PDF içinde sayfa bulma (2. sayfa)
+  ok  PDF içinde sayfa bulma (1. sayfa, Türkçe)
+  ok  satır sonunu aşan uzun alıntıda sayfa bulma
+  ok  belgede olmayan metin için sayfa yok
+  ok  okunamayan dosya için sayfa yok
+SELFTEST OK
+build/Derkenar.app: replacing existing signature
+build/Derkenar.app: valid on disk
+build/Derkenar.app: satisfies its Designated Requirement
+-rw-r--r--  1 runner  staff  275855 Nov 17 14:51 build/Derkenar-mac.zip
+x86_64 arm64
+== açılış denemesi ==
+SMOKE OK
+sonuç: success · b4234b4 · 2026-11-17T14:51:24Z
