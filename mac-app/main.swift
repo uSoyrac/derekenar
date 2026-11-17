@@ -631,7 +631,7 @@ final class OnboardingController: NSObject, NSWindowDelegate {
         browserButton.action = #selector(connectInBrowser)
         browserButton.bezelStyle = .rounded
         connectButton.target = self
-        connectButton.action = #selector(connect)
+        connectButton.action = #selector(connectFromField)
         connectButton.bezelStyle = .rounded
         accessButton.target = self
         accessButton.action = #selector(requestAccess)
@@ -733,7 +733,7 @@ final class OnboardingController: NSObject, NSWindowDelegate {
         if let url = URL(string: base + "?baglan=mac#/ayarlar") { NSWorkspace.shared.open(url) }
     }
 
-    @objc private func connect() {
+    @objc private func connectFromField() {
         connect(code: codeField.stringValue)
     }
 
