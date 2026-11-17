@@ -1,0 +1,25 @@
+{
+  "name": "derkenar-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node scripts/copy-ocr.mjs && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.11.4",
+    "@supabase/supabase-js": "^2.119.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/tur": "^1.0.0",
+    "docx": "^9.15.4",
+    "pdfjs-dist": "^4.10.38",
+    "preact": "^11.2.0",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "vite": "^8.3.8"
+  }
+}

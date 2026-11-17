@@ -1,0 +1,57 @@
+# Web uygulamasını derleyip GitHub Pages'e yayınlar.
+# Bir kez: depo ayarlarında Settings → Pages → Source = "GitHub Actions" seçilmeli.
+# Supabase bilgileri depo değişkenlerinden okunur (Settings → Secrets and variables → Actions → Variables):
+#   SUPABASE_URL  = https://xxxx.supabase.co
+#   SUPABASE_KEY  = yayınlanabilir (publishable / anon) anahtar; gizli değildir
+# Değişkenler yoksa uygulama hesapsız kipte yayınlanır.
+name: Yayınla
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Derle
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+      - name: Supabase ayarını yaz
+        if: ${{ vars.SUPABASE_URL != '' && vars.SUPABASE_KEY != '' }}
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ vars.SUPABASE_KEY }}
+        run: |
+          node -e 'require("fs").writeFileSync("web/dist/config.json", JSON.stringify({ supabaseUrl: process.env.SUPABASE_URL, supabaseKey: process.env.SUPABASE_KEY }))'
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

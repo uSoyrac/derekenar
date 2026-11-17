@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Derkenar</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <div class="head">
+    <h1>Derkenar</h1>
+    <span><a id="open-app" href="#" hidden>Kütüphane</a> · <a id="open-options" href="#">Ayarlar</a></span>
+  </div>
+  <div id="setup" class="status" hidden>Eklenti henüz kütüphanene bağlı değil. <a id="setup-link" href="#">Bağlantı kodunu gir</a>.</div>
+  <div id="main" hidden>
+    <div class="page"><strong id="page-title"></strong><span id="page-host" class="dim"></span></div>
+    <div class="stack">
+      <textarea id="note" rows="2" placeholder="Not (isteğe bağlı)" aria-label="Not"></textarea>
+      <input id="tags" placeholder="Etiketler, virgülle ayır" aria-label="Etiketler" />
+      <button id="save" class="primary">Seçili metni kaydet</button>
+    </div>
+    <div id="status" class="status" role="status"></div>
+    <p class="dim">İpucu: metni seçip sağ tıklayarak ya da Alt+Shift+S ile de kaydedebilirsin. Chrome'da açılan PDF'lerde sağ tık menüsünü kullan.</p>
+    <h2>Bu sayfadan kaydettiklerin <span id="count"></span></h2>
+    <ul id="list"></ul>
+    <p id="empty" class="dim" hidden>Bu sayfadan henüz bir şey kaydetmedin.</p>
+  </div>
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

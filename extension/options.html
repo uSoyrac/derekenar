@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Derkenar eklentisi: bağlantı</title>
+  <link rel="stylesheet" href="panel.css" />
+  <style>body { max-width: 560px; margin: 0 auto; padding: 28px 20px; }</style>
+</head>
+<body>
+  <h1>Derkenar eklentisi</h1>
+  <p class="dim" style="margin: 6px 0 16px">Eklentiyi kütüphanene bağlamak için Derkenar'da Ayarlar → “Eklenti ve kısayol bağlantısı” bölümünden bir bağlantı kodu oluştur ve buraya yapıştır.</p>
+  <div class="stack">
+    <textarea id="code" rows="5" placeholder="Bağlantı kodunu buraya yapıştır" aria-label="Bağlantı kodu"></textarea>
+    <button id="connect" class="primary">Bağlan</button>
+    <button id="disconnect" class="danger" hidden>Bağlantıyı kaldır</button>
+  </div>
+  <div id="status" class="status" role="status"></div>
+  <h2>Nasıl kullanılır</h2>
+  <p>Bir sayfada metni seç, sağ tıkla ve “Derkenar'a kaydet”i seç; ya da Alt+Shift+S'ye bas. Araç çubuğundaki Derkenar simgesi yan paneli açar: o sayfadan kaydettiklerini görür, not ekleyebilirsin.</p>
+  <p class="dim">Bilgisayarındaki PDF dosyalarında (file://) sağ tık menüsünün çıkması için chrome://extensions sayfasında bu eklentinin “Dosya URL'lerine erişime izin ver” seçeneğini aç.</p>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
