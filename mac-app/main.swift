@@ -7,6 +7,7 @@
 import Cocoa
 import ApplicationServices
 import ServiceManagement
+import PDFKit
 
 // MARK: - Renk kategorileri
 
@@ -318,6 +319,36 @@ func findPageLabel(in window: AXUIElement) -> String? {
             if role == "AXScrollArea" || role == "AXWebArea" { continue }
             for child in axChildren(element) { queue.append((child, depth + 1)) }
         }
+    }
+    return nil
+}
+
+/// Alıntının geçtiği sayfayı PDF dosyasının içinde arayarak bulur. Erişilebilirlik izni gerektirmez
+/// ve PDF kendi sayfa etiketlerini taşıyorsa (ör. basılı sayfa numarası) onu döndürür.
+/// `hintPage`: pencere başlığından okunan sıra numarası; aynı ifade birden çok sayfada geçerse seçimde kullanılır.
+func findPdfPage(path: String, text: String, hintPage: String? = nil) -> String? {
+    guard path.lowercased().hasSuffix(".pdf"), let document = PDFDocument(url: URL(fileURLWithPath: path)) else { return nil }
+    let words = text.split(separator: " ").map(String.init)
+    guard !words.isEmpty else { return nil }
+    // Satır sonuna denk gelen parçalar eşleşmeyebilir; uzundan kısaya birkaç parça denenir.
+    var candidates: [String] = []
+    for count in [8, 5, 3] where words.count >= count { candidates.append(words.prefix(count).joined(separator: " ")) }
+    if words.count >= 8 { candidates.append(words[4..<8].joined(separator: " ")) }
+    if words.count >= 6 { candidates.append(words.suffix(4).joined(separator: " ")) }
+    if candidates.isEmpty { candidates.append(words.joined(separator: " ")) }
+
+    func label(_ page: PDFPage) -> String {
+        let own = (page.label ?? "").trimmingCharacters(in: .whitespaces)
+        return own.isEmpty ? String(document.index(for: page) + 1) : own
+    }
+    for candidate in candidates {
+        let pages = document.findString(candidate, withOptions: [.caseInsensitive]).compactMap { $0.pages.first }
+        if pages.isEmpty { continue }
+        if let hint = hintPage, let number = Int(hint),
+           let match = pages.first(where: { document.index(for: $0) + 1 == number }) {
+            return label(match)
+        }
+        return label(pages[0])
     }
     return nil
 }
@@ -763,8 +794,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var toastTimer: Timer?
     private var lastExternalApp: NSRunningApplication?
     private var hotkeyMonitor: Any?
-    private var penTimer: Timer?        // çizim kipi: kopyalanan her metin kaydedilir
+    private var penActive = false       // çizim kipi: kopyalanan her metin kaydedilir
     private var penChangeCount = 0
+    private var clipboardTimer: Timer?
+    private var clipboardCount = NSPasteboard.general.changeCount
+    private var clipboardChangedAt: Date?   // pano en son ne zaman değişti (uygulama açıkken)
     private let onboarding = OnboardingController()
     private let smoke = CommandLine.arguments.contains("--smoke")
 
@@ -788,6 +822,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if !Settings.bubbleHidden { showBubble() }
 
+        // Panonun ne zaman değiştiğini izle: eski bir kopya yanlışlıkla alıntı diye kaydedilmesin.
+        clipboardTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            let count = NSPasteboard.general.changeCount
+            guard count != self.clipboardCount else { return }
+            self.clipboardCount = count
+            self.clipboardChangedAt = Date()
+            if self.penActive, count != self.penChangeCount, let text = clipboardText() {
+                self.penChangeCount = count
+                self.save(text: text, colorKey: Settings.lastColor)
+            }
+        }
         onboarding.onConnected = { [weak self] in self?.refreshNames() }
         onboarding.onTrusted = { [weak self] in self?.installHotkey() }
         installHotkey()
@@ -885,7 +931,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
         let pen = actionItem("Çizim kipi: kopyaladığım her metni kaydet", #selector(togglePen))
-        pen.state = penTimer == nil ? .off : .on
+        pen.state = penActive ? .on : .off
         pen.toolTip = "Açıkken ⌘C ile kopyaladığın her metin, son seçtiğin renkle kaydedilir."
         menu.addItem(pen)
         menu.addItem(.separator())
@@ -928,24 +974,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func togglePen() {
-        if let timer = penTimer {
-            timer.invalidate()
-            penTimer = nil
+        if penActive {
+            penActive = false
             bubbleView?.armed = false
             toast("Çizim kipi kapandı")
             return
         }
         guard Settings.connection != nil else { onboarding.show(); return }
         penChangeCount = NSPasteboard.general.changeCount
-        penTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            let count = NSPasteboard.general.changeCount
-            guard count != self.penChangeCount else { return }
-            self.penChangeCount = count
-            if let text = clipboardText() { self.save(text: text, colorKey: Settings.lastColor) }
-        }
+        penActive = true
         bubbleView?.armed = true
-        toast("Çizim kipi açık (\(Settings.name(for: Settings.lastColor))): metni seç, ⌘C'ye bas, kaydedilsin")
+        toast("Çizim kipi açık (\(Settings.name(for: Settings.lastColor))): metni seç, ⌘C'ye bas, kaydedilsin", seconds: 5)
     }
 
     @available(macOS 13.0, *)
@@ -983,11 +1022,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         bubbleView?.ringColor = nsColor(hex: category(colorKey).hex)
         var text: String?
         if AXIsProcessTrusted(), let app = targetApp() { text = grabSelection(pid: app.processIdentifier) }
-        if text == nil { text = clipboardText() }
+        if text == nil {
+            // Yalnızca az önce kopyalanmış metin kabul edilir (son 3 dakika).
+            if let changed = clipboardChangedAt, Date().timeIntervalSince(changed) < 180 { text = clipboardText() }
+        }
         guard let found = text else {
             toast(AXIsProcessTrusted()
                 ? "Seçili metin bulunamadı. Önce metni seç, sonra rengi seç."
-                : "Önce metni seçip kopyala (⌘C), sonra rengi seç.", error: true)
+                : "Önce metni seç ve kopyala (⌘C), sonra buradan rengi seç.", error: true, seconds: 6)
             return
         }
         // Çizim kipi açıksa bu metni ikinci kez kaydetmesin.
@@ -1006,16 +1048,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let cat = category(colorKey)
         var context = CaptureContext()
         if let app = targetApp() { context = captureContext(app: app) }
-        let payload = buildPayload(text: text, colorHex: cat.hex, context: context)
-        rpc("capture", ["p_payload": payload]) { result in
-            switch result {
-            case .success(let json):
-                let duplicate = ((json as? [String: Any])?["duplicate"] as? Bool) ?? false
-                var message = duplicate ? "Bu alıntı zaten kayıtlıydı" : "Kaydedildi · \(Settings.name(for: cat.key))"
-                if !duplicate, let page = context.page { message += " · s. \(page)" }
-                self.toast(message)
-            case .failure(let error):
-                self.toast(describe(error), error: true)
+        let captured = context
+        // Sayfa numarası: metin PDF dosyasının içinde aranır (büyük kitaplarda bir iki saniye sürebilir).
+        DispatchQueue.global(qos: .userInitiated).async {
+            var resolved = captured
+            if let path = captured.documentPath, let page = findPdfPage(path: path, text: text, hintPage: captured.page) {
+                resolved.page = page
+            }
+            let payload = buildPayload(text: text, colorHex: cat.hex, context: resolved)
+            let page = resolved.page
+            DispatchQueue.main.async {
+                rpc("capture", ["p_payload": payload]) { result in
+                    switch result {
+                    case .success(let json):
+                        let duplicate = ((json as? [String: Any])?["duplicate"] as? Bool) ?? false
+                        var message = duplicate ? "Bu alıntı zaten kayıtlıydı" : "Kaydedildi · \(Settings.name(for: cat.key))"
+                        if !duplicate, let page = page { message += " · s. \(page)" }
+                        self.toast(message)
+                    case .failure(let error):
+                        self.toast(describe(error), error: true)
+                    }
+                }
             }
         }
     }
@@ -1164,6 +1217,36 @@ func runSelfTest() -> Bool {
     Settings.names = ["green": "Yöntem", "pink": "  "]
     check(Settings.name(for: "green") == "Yöntem" && Settings.name(for: "pink") == "Pembe", "kategori adı: özel ad ya da renk adı")
     Settings.names = [:]
+
+    // Sayfa bulma: iki sayfalı gerçek bir PDF üretilir, metin içinde aranır.
+    let pdfURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("derkenar-selftest.pdf")
+    let pageTexts = [
+        "Okumak, bir metnin içinden geçerken iz bırakmaktır. Altını çizdiğimiz her cümle, daha sonra döneceğimiz bir işarettir ve bu işaretler zamanla kişisel bir harita oluşturur.",
+        "Visually, settings are realized by the presence of foreground and background. Figure 5.4 is an example, as it shows both the spatial arrangement with the teacher on a chair and the children on the floor, and the classroom setting.",
+    ]
+    var mediaBox = CGRect(x: 0, y: 0, width: 420, height: 595)
+    if let pdfContext = CGContext(pdfURL as CFURL, mediaBox: &mediaBox, nil) {
+        for pageText in pageTexts {
+            pdfContext.beginPDFPage(nil)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: pdfContext, flipped: false)
+            let font = NSFont(name: "Times New Roman", size: 14) ?? NSFont.systemFont(ofSize: 14)
+            NSAttributedString(string: pageText, attributes: [.font: font]).draw(in: CGRect(x: 40, y: 60, width: 340, height: 480))
+            NSGraphicsContext.restoreGraphicsState()
+            pdfContext.endPDFPage()
+        }
+        pdfContext.closePDF()
+        let path = pdfURL.path
+        check(PDFDocument(url: pdfURL)?.pageCount == 2, "deneme PDF'i üretildi")
+        check(findPdfPage(path: path, text: "Visually, settings are realized by the presence of foreground and background.") == "2", "PDF içinde sayfa bulma (2. sayfa)")
+        check(findPdfPage(path: path, text: "Altını çizdiğimiz her cümle, daha sonra döneceğimiz bir işarettir") == "1", "PDF içinde sayfa bulma (1. sayfa, Türkçe)")
+        check(findPdfPage(path: path, text: "it shows both the spatial arrangement with the teacher on a chair and the children on the floor") == "2", "satır sonunu aşan uzun alıntıda sayfa bulma")
+        check(findPdfPage(path: path, text: "bu cümle belgede hiç geçmiyor ki") == nil, "belgede olmayan metin için sayfa yok")
+        check(findPdfPage(path: "/olmayan/dosya.pdf", text: "metin") == nil, "okunamayan dosya için sayfa yok")
+        try? FileManager.default.removeItem(at: pdfURL)
+    } else {
+        check(false, "deneme PDF'i üretilemedi")
+    }
 
     print(failures == 0 ? "SELFTEST OK" : "SELFTEST BASARISIZ: \(failures)")
     return failures == 0

@@ -7,8 +7,8 @@
   <key>CFBundleIdentifier</key><string>app.derkenar.mac</string>
   <key>CFBundleExecutable</key><string>Derkenar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.4.0</string>
-  <key>CFBundleVersion</key><string>4</string>
+  <key>CFBundleShortVersionString</key><string>0.5.0</string>
+  <key>CFBundleVersion</key><string>5</string>
   <key>CFBundleIconFile</key><string>Derkenar</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>CFBundleURLTypes</key>
@@ -19,6 +19,9 @@
     </dict>
   </array>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSDownloadsFolderUsageDescription</key><string>Derkenar, alıntının sayfa numarasını bulmak için okuduğun PDF dosyasını açar.</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>Derkenar, alıntının sayfa numarasını bulmak için okuduğun PDF dosyasını açar.</string>
+  <key>NSDesktopFolderUsageDescription</key><string>Derkenar, alıntının sayfa numarasını bulmak için okuduğun PDF dosyasını açar.</string>
   <key>NSAppleEventsUsageDescription</key><string>Derkenar, kaydettiğin alıntının kaynağını yazabilmek için öndeki uygulamadan sayfa adresini ya da belge adını okur.</string>
 </dict>
 </plist>
